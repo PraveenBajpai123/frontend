@@ -179,10 +179,10 @@ export default function ProgressPage() {
               <h2 className="text-2xl font-semibold text-foreground mb-6">
                 Knowledge Graph
               </h2>
-              <KnowledgeGraphD3 
+              <KnowledgeGraphD3
                 nodes={graphData.nodes.map((node) => ({
                   id: node.id,
-                  label: node.title,
+                  label: node.name,
                   mastery: node.mastery,
                   level: 1,
                 }))}

@@ -56,7 +56,7 @@ export default function ChapterPage() {
     router.push(`/chapter/${chapterId}/subtopic/${subtopicId}`);
   };
 
-  const completed = subtopicList.filter((_, i) => i === 0).length; // placeholder
+  const completed = subtopicList.filter((s: any) => s.isComplete).length;
   const progress = subtopicList.length > 0 ? (completed / subtopicList.length) * 100 : 0;
 
   return (
