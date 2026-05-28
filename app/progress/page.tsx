@@ -169,7 +169,7 @@ export default function ProgressPage() {
           </motion.div>
 
           {/* Knowledge Graph */}
-          {!isLoading && graphData && (
+          {!isLoading && graphData && graphData.nodes?.length > 0 && (
             <motion.div
               className="mb-12"
               variants={itemVariants}

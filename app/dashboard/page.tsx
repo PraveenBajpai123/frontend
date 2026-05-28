@@ -1,8 +1,10 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useStudentStore } from "@/lib/store";
-import { motion } from "framer-motion";
+import { reviewDue as reviewDueAPI } from "@/lib/api";
+import { motion, AnimatePresence } from "framer-motion";
 import { RouteGuard } from "@/components/route-guard";
 import Link from "next/link";
 
@@ -51,8 +53,32 @@ const SUBJECTS = [
 
 export default function DashboardPage() {
   const router = useRouter();
-  const student = useStudentStore((state) => state.student);
+  const student         = useStudentStore((state) => state.student);
   const chapterProgress = useStudentStore((state) => state.chapterProgress);
+
+  // ── Review-due state ──────────────────────────────────────────────────────
+  interface ReviewItem {
+    conceptId:        string;
+    conceptName:      string;
+    tag:              string;
+    effectiveMastery: number;
+    mastery:          number;
+    retentionScore:   number;
+    daysSinceAttempt: number;
+  }
+  const [dueItems,    setDueItems]    = useState<ReviewItem[]>([]);
+  const [dueLoading,  setDueLoading]  = useState(false);
+
+  useEffect(() => {
+    if (!student) return;
+    setDueLoading(true);
+    reviewDueAPI.get(student.id)
+      .then(setDueItems)
+      .catch(() => setDueItems([]))
+      .finally(() => setDueLoading(false));
+  }, [student]);
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   const avgMastery =
     chapterProgress.length > 0
@@ -209,6 +235,140 @@ export default function DashboardPage() {
                 </div>
               </motion.button>
             ))}
+          </motion.div>
+
+          {/* ── Due for Review ── */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35 }}
+            className="mt-12"
+          >
+            <div className="flex items-center gap-3 mb-5">
+              <span className="text-2xl">⏰</span>
+              <div>
+                <h2 className="text-white font-black text-xl" style={{ letterSpacing: "-0.01em" }}>Due for Review</h2>
+                <p className="text-gray-600 text-xs mt-0.5">Concepts you've learned but may be forgetting</p>
+              </div>
+              {dueItems.length > 0 && (
+                <span
+                  className="ml-auto text-xs font-bold px-2.5 py-1 rounded-full"
+                  style={{ background: "rgba(251,191,36,0.12)", color: "#fbbf24" }}
+                >
+                  {dueItems.length} due
+                </span>
+              )}
+            </div>
+
+            {/* Loading skeleton */}
+            {dueLoading && (
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="rounded-2xl h-16 animate-pulse"
+                    style={{ background: "#1a1a1a" }}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Empty state */}
+            {!dueLoading && dueItems.length === 0 && (
+              <div
+                className="rounded-2xl p-8 text-center"
+                style={{ background: "#1a1a1a", border: "1px solid #222" }}
+              >
+                <p className="text-3xl mb-2">✅</p>
+                <p className="text-white font-semibold text-sm">All caught up!</p>
+                <p className="text-gray-600 text-xs mt-1">No concepts due for review right now.</p>
+              </div>
+            )}
+
+            {/* Review cards */}
+            {!dueLoading && dueItems.length > 0 && (
+              <AnimatePresence>
+                <motion.div
+                  className="space-y-3"
+                  initial="hidden"
+                  animate="visible"
+                  variants={{ visible: { transition: { staggerChildren: 0.06 } } }}
+                >
+                  {dueItems.map((item) => {
+                    const decay = item.mastery > 0
+                      ? Math.round(((item.mastery - item.effectiveMastery) / item.mastery) * 100)
+                      : 0;
+                    // Tag often looks like "chemical_bonding_covalent_bonds" — prettify it
+                    const topicHint = item.tag
+                      .replace(/_/g, " ")
+                      .replace(/\b\w/g, (c) => c.toUpperCase())
+                      .split(" ")
+                      .slice(0, 4)
+                      .join(" ");
+
+                    return (
+                      <motion.div
+                        key={item.conceptId}
+                        variants={{ hidden: { opacity: 0, x: -16 }, visible: { opacity: 1, x: 0 } }}
+                        className="group rounded-2xl p-4 flex items-center gap-4 transition-all"
+                        style={{
+                          background: "#1a1a1a",
+                          border: "1.5px solid #222",
+                        }}
+                        onMouseEnter={(e) => {
+                          (e.currentTarget as HTMLElement).style.borderColor = "#fbbf24";
+                          (e.currentTarget as HTMLElement).style.boxShadow = "0 0 20px rgba(251,191,36,0.08)";
+                        }}
+                        onMouseLeave={(e) => {
+                          (e.currentTarget as HTMLElement).style.borderColor = "#222";
+                          (e.currentTarget as HTMLElement).style.boxShadow = "none";
+                        }}
+                      >
+                        {/* Urgency dot */}
+                        <div
+                          className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold"
+                          style={{ background: "rgba(251,191,36,0.1)", color: "#fbbf24" }}
+                        >
+                          {item.daysSinceAttempt}d
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white font-semibold text-sm truncate">{item.conceptName}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-gray-600 text-xs truncate">{topicHint}</span>
+                            {decay > 0 && (
+                              <span className="text-xs font-semibold flex-shrink-0" style={{ color: "#ef4444" }}>
+                                ↓{decay}% decay
+                              </span>
+                            )}
+                          </div>
+                          {/* Retention bar */}
+                          <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: "#252525" }}>
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${item.effectiveMastery}%`,
+                                background: item.effectiveMastery < 30 ? "#ef4444" : item.effectiveMastery < 60 ? "#f97316" : "#eab308",
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Action */}
+                        <Link
+                          href="/subject/Chemistry"
+                          className="flex-shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-all"
+                          style={{ background: "rgba(251,191,36,0.1)", color: "#fbbf24" }}
+                        >
+                          Review →
+                        </Link>
+                      </motion.div>
+                    );
+                  })}
+                </motion.div>
+              </AnimatePresence>
+            )}
           </motion.div>
         </div>
       </div>

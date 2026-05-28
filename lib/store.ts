@@ -4,7 +4,6 @@ import { persist } from "zustand/middleware";
 export interface Student {
   id: string;
   name: string;
-  email: string;
 }
 
 export interface QuizAnswer {
@@ -22,6 +21,8 @@ export interface ChapterProgress {
 interface StudentStore {
   student: Student | null;
   setStudent: (student: Student) => void;
+  classLevel: number;
+  setClassLevel: (level: number) => void;
   currentChapterId: string | null;
   setCurrentChapterId: (id: string | null) => void;
   currentSubtopicId: string | null;
@@ -44,6 +45,8 @@ export const useStudentStore = create<StudentStore>()(
     (set) => ({
       student: null,
       setStudent: (student) => set({ student }),
+      classLevel: 11,
+      setClassLevel: (level) => set({ classLevel: level }),
       currentChapterId: null,
       setCurrentChapterId: (id) => set({ currentChapterId: id }),
       currentSubtopicId: null,
