@@ -148,13 +148,13 @@ export const quiz = {
     sessionId: string,
     studentId: string,
     questionIndex: number,
-    selectedOption: number
+    chosenAnswer: number
   ) => {
     const response = await api.post("/api/quiz/answer", {
       sessionId,
       studentId,
       questionIndex,
-      selectedOption,
+      chosenAnswer,
     });
     return response.data.data;
   },
@@ -198,7 +198,16 @@ export const graph = {
 export const history = {
   getHistory: async (studentId: string) => {
     const response = await api.get(`/api/students/${studentId}/history`);
-    return response.data.data;
+    const student = response.data.data;
+    // Backend returns student object with sessions array, not a flat array
+    return (student.sessions || []).map((s: any) => ({
+      id: s.id,
+      chapterId: s.subtopic?.topicId || s.topicId,
+      subtopicId: s.subtopicId,
+      score: s.totalShown > 0 ? Math.round((s.totalCorrect / s.totalShown) * 100) : 0,
+      completedAt: s.createdAt,
+      subtopicTitle: s.subtopic?.name,
+    }));
   },
 };
 

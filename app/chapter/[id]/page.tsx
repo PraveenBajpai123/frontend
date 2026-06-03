@@ -22,17 +22,17 @@ interface Chapter {
 }
 
 export default function ChapterPage() {
-  const router    = useRouter();
-  const params    = useParams();
+  const router = useRouter();
+  const params = useParams();
   const chapterId = params.id as string;
 
-  const student              = useStudentStore((state) => state.student);
+  const student = useStudentStore((state) => state.student);
   const setCurrentSubtopicId = useStudentStore((state) => state.setCurrentSubtopicId);
-  const classLevel           = useStudentStore((state) => state.classLevel);
+  const classLevel = useStudentStore((state) => state.classLevel);
 
-  const [chapter,      setChapter]      = useState<Chapter | null>(null);
+  const [chapter, setChapter] = useState<Chapter | null>(null);
   const [subtopicList, setSubtopicList] = useState<Subtopic[]>([]);
-  const [isLoading,    setIsLoading]    = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -59,8 +59,13 @@ export default function ChapterPage() {
     router.push(`/chapter/${chapterId}/subtopic/${subtopic.id}`);
   };
 
+<<<<<<< HEAD
   const unlockedCount = subtopicList.filter((s) => s.isUnlocked).length;
-  const progress      = subtopicList.length > 0 ? (unlockedCount / subtopicList.length) * 100 : 0;
+  const progress = subtopicList.length > 0 ? (unlockedCount / subtopicList.length) * 100 : 0;
+=======
+  const completed = subtopicList.filter((s: any) => s.isComplete).length;
+  const progress = subtopicList.length > 0 ? (completed / subtopicList.length) * 100 : 0;
+>>>>>>> 279746deaf4c82ca7fc98cd9bee87e818e9b1019
 
   return (
     <RouteGuard>
@@ -153,8 +158,8 @@ export default function ChapterPage() {
               initial="hidden"
               animate="visible"
               variants={{
-                hidden:   { opacity: 0 },
-                visible:  { opacity: 1, transition: { staggerChildren: 0.07 } },
+                hidden: { opacity: 0 },
+                visible: { opacity: 1, transition: { staggerChildren: 0.07 } },
               }}
             >
               {subtopicList.map((subtopic, index) => {
@@ -165,27 +170,27 @@ export default function ChapterPage() {
                     key={subtopic.id || index}
                     onClick={() => handleSubtopicClick(subtopic)}
                     variants={{
-                      hidden:   { opacity: 0, x: -20 },
-                      visible:  { opacity: 1, x: 0 },
+                      hidden: { opacity: 0, x: -20 },
+                      visible: { opacity: 1, x: 0 },
                     }}
                     whileHover={locked ? {} : { x: 4 }}
                     whileTap={locked ? {} : { scale: 0.99 }}
                     className="w-full text-left group rounded-2xl transition-all"
                     style={{
                       background: locked ? "#1c1c1c" : "#222",
-                      border:     `1.5px solid ${locked ? "#1f1f1f" : "#2a2a2a"}`,
-                      cursor:     locked ? "not-allowed" : "pointer",
-                      opacity:    locked ? 0.55 : 1,
+                      border: `1.5px solid ${locked ? "#1f1f1f" : "#2a2a2a"}`,
+                      cursor: locked ? "not-allowed" : "pointer",
+                      opacity: locked ? 0.55 : 1,
                     }}
                     onMouseEnter={(e) => {
                       if (locked) return;
                       (e.currentTarget as HTMLElement).style.borderColor = "#CCEB58";
-                      (e.currentTarget as HTMLElement).style.boxShadow   = "0 0 20px rgba(204,235,88,0.08)";
+                      (e.currentTarget as HTMLElement).style.boxShadow = "0 0 20px rgba(204,235,88,0.08)";
                     }}
                     onMouseLeave={(e) => {
                       if (locked) return;
                       (e.currentTarget as HTMLElement).style.borderColor = "#2a2a2a";
-                      (e.currentTarget as HTMLElement).style.boxShadow   = "none";
+                      (e.currentTarget as HTMLElement).style.boxShadow = "none";
                     }}
                   >
                     <div className="flex items-center gap-4 p-5">
@@ -202,8 +207,8 @@ export default function ChapterPage() {
                       >
                         {locked ? (
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                           </svg>
                         ) : (
                           index + 1
@@ -238,7 +243,7 @@ export default function ChapterPage() {
                       >
                         {locked ? (
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
+                            <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" />
                           </svg>
                         ) : (
                           "→"
