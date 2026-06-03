@@ -67,6 +67,7 @@ export default function QuizPage() {
   const student         = useStudentStore((s) => s.student);
   const sessionId       = useStudentStore((s) => s.currentSessionId);
   const initialQuestions = useStudentStore((s) => s.currentQuestions);
+  const updateChapterProgress = useStudentStore((s) => s.updateChapterProgress);
 
   // ── State ──────────────────────────────────────────────────────────────────
 
@@ -169,6 +170,16 @@ export default function QuizPage() {
     ? Math.round((correct / questionsShown) * 100)
     : 0;
 
+  const handlePostQuizNavigation = (targetPath: string) => {
+    const derivedPct = summary?.percentage ?? progressPct;
+    updateChapterProgress({
+      chapterId,
+      masteryLevel: derivedPct,
+      completedAt: new Date().toISOString(),
+    });
+    router.push(targetPath);
+  };
+
   // ════════════════════════════════════════════════════════════════════════════
   // RESULTS SCREEN
   // ════════════════════════════════════════════════════════════════════════════
@@ -236,7 +247,7 @@ export default function QuizPage() {
             {/* Actions */}
             <div className="flex gap-3">
               <motion.button
-                onClick={() => router.push(`/chapter/${chapterId}`)}
+                onClick={() => handlePostQuizNavigation(`/chapter/${chapterId}`)}
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
                 className="flex-1 py-3 rounded-full font-bold text-sm"
@@ -245,7 +256,7 @@ export default function QuizPage() {
                 ← Chapter
               </motion.button>
               <motion.button
-                onClick={() => router.push(`/chapter/${chapterId}/subtopic/${subtopicId}`)}
+                onClick={() => handlePostQuizNavigation(`/chapter/${chapterId}/subtopic/${subtopicId}`)}
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
                 className="flex-1 py-3 rounded-full font-bold text-sm"
