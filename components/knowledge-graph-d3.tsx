@@ -62,13 +62,14 @@ export function KnowledgeGraphD3({
       .attr('stroke-width', 2);
 
     // Draw nodes
+    // mastery is 0-100; radius scales from 20px (0%) to 40px (100%)
     const node = svg
       .selectAll('.node')
       .data(nodes)
       .enter()
       .append('circle')
       .attr('class', 'node')
-      .attr('r', (d: any) => 20 + d.mastery * 2)
+      .attr('r', (d: any) => 20 + (d.mastery / 100) * 20)
       .attr('fill', (d: any) => {
         if (d.mastery >= 80) return '#CCEB58';
         if (d.mastery >= 50) return '#EDF8C3';
@@ -78,7 +79,7 @@ export function KnowledgeGraphD3({
       .attr('stroke-width', 2)
       .call(drag(simulation) as any);
 
-    // Add labels
+    // Add topic labels
     const label = svg
       .selectAll('.label')
       .data(nodes)
@@ -88,10 +89,24 @@ export function KnowledgeGraphD3({
       .attr('text-anchor', 'middle')
       .attr('dominant-baseline', 'middle')
       .attr('font-family', "'Reddit Sans', sans-serif")
-      .attr('font-size', '12px')
-      .attr('font-weight', '500')
+      .attr('font-size', '11px')
+      .attr('font-weight', '600')
       .attr('fill', '#222222')
       .text((d: any) => d.label);
+
+    // Add mastery % sub-labels
+    const masteryLabel = svg
+      .selectAll('.mastery-label')
+      .data(nodes)
+      .enter()
+      .append('text')
+      .attr('class', 'mastery-label')
+      .attr('text-anchor', 'middle')
+      .attr('font-family', "'Reddit Sans', sans-serif")
+      .attr('font-size', '9px')
+      .attr('font-weight', '700')
+      .attr('fill', '#444')
+      .text((d: any) => d.mastery + '%');
 
     // Update positions on simulation tick
     simulation.on('tick', () => {
@@ -103,7 +118,8 @@ export function KnowledgeGraphD3({
 
       node.attr('cx', (d: any) => d.x).attr('cy', (d: any) => d.y);
 
-      label.attr('x', (d: any) => d.x).attr('y', (d: any) => d.y);
+      label.attr('x', (d: any) => d.x).attr('y', (d: any) => d.y - 4);
+      masteryLabel.attr('x', (d: any) => d.x).attr('y', (d: any) => d.y + 10);
     });
 
     // Drag behavior

@@ -9,8 +9,8 @@ const api = axios.create({
 
 // Student endpoints
 export const students = {
-  register: async (name: string, email: string) => {
-    const response = await api.post("/api/students", { name, email });
+  register: async (name: string) => {
+    const response = await api.post("/api/students", { name });
     return response.data.data;
   },
   get: async (studentId: string) => {
@@ -21,18 +21,22 @@ export const students = {
 
 // Chapter endpoints
 export const chapters = {
-  getAll: async (subject = "Chemistry") => {
-    const response = await api.get(`/api/subtopics/topics?subject=${subject}`);
+  getAll: async (subject = "Chemistry", classLevel = 11) => {
+    const response = await api.get(
+      `/api/subtopics/topics?subject=${subject}&classLevel=${classLevel}`
+    );
     return response.data.data.map((topic: any) => ({
       id: topic.id,
       title: topic.name,
       description: `${topic.totalSubtopics} topics in this chapter`
     }));
   },
-  get: async (chapterId: string) => {
-    const response = await api.get("/api/subtopics/topics?subject=Chemistry");
+  get: async (chapterId: string, classLevel = 11) => {
+    const response = await api.get(
+      `/api/subtopics/topics?subject=Chemistry&classLevel=${classLevel}`
+    );
     const topics = response.data.data;
-    const topic = topics.find((t: any) => t.id === chapterId);
+    const topic  = topics.find((t: any) => t.id === chapterId);
     if (!topic) throw new Error("Chapter not found");
     return {
       id: topic.id,
@@ -46,13 +50,14 @@ export const chapters = {
 export const subtopics = {
   getByChapter: async (chapterId: string, studentId: string) => {
     const response = await api.get(`/api/subtopics/${chapterId}/progress?studentId=${studentId}`);
-    return response.data.data.subtopics.map((s: any) => ({
-      id: s.subtopicId,
-      title: s.subtopicName,
+    return response.data.data.subtopics.map((s: any, i: number) => ({
+      id:         s.subtopicId,
+      title:      s.subtopicName,
       description: s.subtopicName,
-      isComplete: s.isComplete,
-      isUnlocked: s.isUnlocked,
-      mastery: s.mastery,
+      // First subtopic is always unlocked; respect backend flag for the rest
+      isUnlocked: i === 0 ? true : (s.isUnlocked ?? false),
+      // Backend returns 0-1 float → normalize to 0-100
+      masteryScore: s.masteryScore != null ? Math.min(100, Math.round(s.masteryScore * 100)) : null,
     }));
   },
   get: async (chapterId: string, subtopicId: string, studentId: string) => {
@@ -65,37 +70,52 @@ export const subtopics = {
       description: subtopic.subtopicName
     };
   },
+
+  // GET /api/subtopics/:subtopicId/concepts?studentId=...
+  getConcepts: async (subtopicId: string, studentId: string) => {
+    const response = await api.get(
+      `/api/subtopics/${subtopicId}/concepts?studentId=${studentId}`
+    );
+    const list: any[] = response.data.data ?? response.data ?? [];
+    return list.map((c) => ({
+      conceptId:        c.conceptId,
+      conceptName:      c.conceptName,
+      tag:              c.tag,
+      // Normalize 0-1 → 0-100
+      effectiveMastery: Math.min(100, Math.round((c.effectiveMastery ?? 0) * 100)),
+      mastery:          Math.min(100, Math.round((c.mastery         ?? 0) * 100)),
+      velocity:         c.velocity         ?? 0,
+      consecutiveWrong: c.consecutiveWrong ?? 0,
+      retentionScore:   Math.min(100, Math.round((c.retentionScore  ?? 0) * 100)),
+      daysSinceAttempt: c.daysSinceAttempt ?? 0,
+      attempts:         c.attempts         ?? 0,
+    }));
+  },
 };
 
-// Content generation endpoints
-// Returns { sessionId, title, passage, questions[] }
+// Review-due endpoint
+export const reviewDue = {
+  get: async (studentId: string) => {
+    const response = await api.get(`/api/subtopics/${studentId}/review-due`);
+    const list: any[] = response.data.data ?? response.data ?? [];
+    return list.map((c) => ({
+      conceptId:        c.conceptId   as string,
+      conceptName:      c.conceptName as string,
+      tag:              c.tag         as string,
+      effectiveMastery: Math.min(100, Math.round((c.effectiveMastery ?? 0) * 100)),
+      mastery:          Math.min(100, Math.round((c.mastery          ?? 0) * 100)),
+      retentionScore:   Math.min(100, Math.round((c.retentionScore   ?? 0) * 100)),
+      daysSinceAttempt: Math.round(c.daysSinceAttempt ?? 0),
+      attempts:         c.attempts ?? 0,
+    }));
+  },
+};
+
+// Content generation is handled directly via SSE streaming in the subtopic page.
+// This export is kept only for backward compatibility — do not call it.
 export const content = {
-  generatePassage: async (
-    studentId: string,
-    subtopicId: string
-  ) => {
-    const response = await api.post("/api/content/generate", {
-      studentId,
-      subtopicId,
-    });
-    const data = response.data.data;
-    return {
-      sessionId: data.sessionId,
-      title: data.title || "Study Material",
-      passage: data.passage,
-      // questions array straight from the session (index 0-4)
-      questions: (data.questions || []).map((q: any) => ({
-        id: String(q.index),
-        index: q.index,
-        text: q.question,
-        options: q.options,
-        correctIndex: q.correctIndex,
-        explanation: q.explanation,
-        cognitiveLevel: q.cognitiveLevel,
-        difficulty: q.difficulty,
-        conceptTag: q.conceptTag,
-      })),
-    };
+  generatePassage: async (_studentId: string, _subtopicId: string) => {
+    throw new Error("Use SSE streaming in the subtopic page directly.");
   },
 };
 
@@ -161,7 +181,16 @@ export const quiz = {
 export const graph = {
   getKnowledgeGraph: async (studentId: string) => {
     const response = await api.get(`/api/graph/${studentId}`);
-    return response.data.data;
+    // Backend wraps response as { success: true, data: { nodes, edges } }
+    const payload = response.data?.data ?? response.data ?? {};
+    const rawNodes: any[] = payload.nodes ?? [];
+    const edges:    any[] = payload.edges ?? [];
+    // Normalize mastery: backend returns 0-1 float → convert to 0-100 integer
+    const nodes = rawNodes.map((n: any) => ({
+      ...n,
+      mastery: Math.min(100, Math.round((n.mastery ?? 0) * 100)),
+    }));
+    return { nodes, edges };
   },
   getRecommendations: async (studentId: string, subject = "Chemistry", classLevel = 12, limit = 4) => {
     const response = await api.get(

@@ -27,9 +27,11 @@ export default function SubjectChaptersPage() {
   const params = useParams();
   const subject = params.subject as string;
 
-  const student = useStudentStore((state) => state.student);
+  const student            = useStudentStore((state) => state.student);
   const setCurrentChapterId = useStudentStore((state) => state.setCurrentChapterId);
-  const chapterProgress = useStudentStore((state) => state.chapterProgress);
+  const chapterProgress    = useStudentStore((state) => state.chapterProgress);
+  const classLevel         = useStudentStore((state) => state.classLevel);
+  const setClassLevel      = useStudentStore((state) => state.setClassLevel);
 
   const [chapterList, setChapterList] = useState<Chapter[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,11 +40,12 @@ export default function SubjectChaptersPage() {
   const meta = SUBJECT_META[subject] || { emoji: "📚", color: "#CCEB58", tagline: subject };
 
   useEffect(() => {
-    chaptersAPI.getAll(subject)
+    setIsLoading(true);
+    chaptersAPI.getAll(subject, classLevel)
       .then(setChapterList)
       .catch(console.error)
       .finally(() => setIsLoading(false));
-  }, [subject]);
+  }, [subject, classLevel]);
 
   const getProgress = (chapterId: string) =>
     chapterProgress.find((p) => p.chapterId === chapterId)?.masteryLevel || 0;
@@ -101,17 +104,43 @@ export default function SubjectChaptersPage() {
         </motion.header>
 
         <div className="relative z-10 max-w-5xl mx-auto px-6 py-10">
-          {/* Subject hero */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-10 flex items-end gap-6">
-            <div className="w-20 h-20 rounded-3xl flex items-center justify-center text-4xl flex-shrink-0" style={{ background: `${meta.color}15`, border: `1px solid ${meta.color}30` }}>
-              {meta.emoji}
+          {/* Subject hero + class toggle */}
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-10">
+            <div className="flex items-end gap-6 mb-6">
+              <div className="w-20 h-20 rounded-3xl flex items-center justify-center text-4xl flex-shrink-0" style={{ background: `${meta.color}15`, border: `1px solid ${meta.color}30` }}>
+                {meta.emoji}
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-bold tracking-widest mb-1" style={{ color: meta.color }}>SUBJECT</p>
+                <h1 className="font-black text-white leading-none" style={{ fontSize: "clamp(2rem,5vw,3.2rem)", letterSpacing: "-0.02em" }}>
+                  {subject}
+                </h1>
+                <p className="text-gray-500 text-sm mt-1">{meta.tagline}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-bold tracking-widest mb-1" style={{ color: meta.color }}>SUBJECT</p>
-              <h1 className="font-black text-white leading-none" style={{ fontSize: "clamp(2rem,5vw,3.2rem)", letterSpacing: "-0.02em" }}>
-                {subject}
-              </h1>
-              <p className="text-gray-500 text-sm mt-1">{meta.tagline}</p>
+
+            {/* Class level toggle */}
+            <div className="flex items-center gap-3">
+              <span className="text-gray-600 text-xs font-semibold tracking-wider uppercase">Class</span>
+              <div className="flex rounded-xl overflow-hidden" style={{ background: "#1e1e1e", border: "1px solid #2a2a2a" }}>
+                {[11, 12].map((level) => (
+                  <button
+                    key={level}
+                    onClick={() => setClassLevel(level)}
+                    className="px-5 py-2 text-sm font-bold transition-all"
+                    style={{
+                      background:  classLevel === level ? meta.color : "transparent",
+                      color:       classLevel === level ? "#141414"  : "#555",
+                      cursor:      "pointer",
+                    }}
+                  >
+                    {level}
+                  </button>
+                ))}
+              </div>
+              <span className="text-gray-700 text-xs">
+                Showing {chapterList.length} chapters for Class {classLevel}
+              </span>
             </div>
           </motion.div>
 

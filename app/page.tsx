@@ -120,7 +120,7 @@ export default function Landing() {
   const setStudent = useStudentStore((state) => state.setStudent);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [formData, setFormData] = useState({ name: "", email: "" });
+  const [name, setName] = useState("");
   const [showForm, setShowForm] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -128,7 +128,7 @@ export default function Landing() {
     setIsLoading(true);
     setError("");
     try {
-      const student = await students.register(formData.name, formData.email);
+      const student = await students.register(name);
       setStudent(student);
       router.push("/dashboard");
     } catch (err) {
@@ -244,26 +244,11 @@ export default function Landing() {
             >
               <input
                 type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 placeholder="Your name"
                 required
-                className="w-full px-5 py-3.5 rounded-xl text-white font-medium placeholder-gray-500 focus:outline-none focus:ring-2 transition-all"
-                style={{
-                  background: "#2a2a2a",
-                  border: "1.5px solid #333",
-                  // @ts-ignore
-                  "--tw-ring-color": "#CCEB58",
-                }}
-                onFocus={(e) => (e.target.style.borderColor = "#CCEB58")}
-                onBlur={(e) => (e.target.style.borderColor = "#333")}
-              />
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                placeholder="your@email.com"
-                required
+                autoFocus
                 className="w-full px-5 py-3.5 rounded-xl text-white font-medium placeholder-gray-500 focus:outline-none transition-all"
                 style={{ background: "#2a2a2a", border: "1.5px solid #333" }}
                 onFocus={(e) => (e.target.style.borderColor = "#CCEB58")}
@@ -290,7 +275,7 @@ export default function Landing() {
                   boxShadow: "0 0 30px rgba(204,235,88,0.25)",
                 }}
               >
-                {isLoading ? "Creating account…" : "Start Learning →"}
+                {isLoading ? "Just a sec…" : "Start Learning →"}
               </motion.button>
             </motion.form>
           )}

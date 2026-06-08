@@ -1,135 +1,103 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useStudentStore } from "@/lib/store";
 import { quiz as quizAPI } from "@/lib/api";
 import { motion, AnimatePresence } from "framer-motion";
 import { RouteGuard } from "@/components/route-guard";
 
-/** Collapsible per-question result card showing explanation on wrong answers */
-function ResultCard({ q, isCorrect, userAns }: { q: any; isCorrect: boolean; userAns: number | undefined }) {
-  const [open, setOpen] = useState(false);
-  const hasExplanation = !!q.explanation;
-  return (
-    <div
-      className="rounded-xl overflow-hidden"
-      style={{
-        background: isCorrect ? "rgba(204,235,88,0.07)" : "rgba(239,68,68,0.07)",
-        border: `1px solid ${isCorrect ? "rgba(204,235,88,0.2)" : "rgba(239,68,68,0.2)"}`,
-      }}
-    >
-      <div className="p-3 flex items-start gap-3">
-        <span className="text-sm mt-0.5 flex-shrink-0">{isCorrect ? "✓" : "✗"}</span>
-        <div className="flex-1 min-w-0">
-          <p className="text-white text-xs font-medium leading-snug">{q.text}</p>
-          {!isCorrect && (
-            <p className="text-gray-400 text-xs mt-1">
-              Your answer: <span style={{ color: "#ef4444" }}>{userAns !== undefined ? q.options?.[userAns] : "—"}</span>
-              {"  ·  "}
-              Correct: <span style={{ color: "#CCEB58" }}>{q.options?.[q.correctIndex]}</span>
-            </p>
-          )}
-          {hasExplanation && (
-            <button
-              onClick={() => setOpen((v) => !v)}
-              className="text-xs font-semibold mt-1.5 transition-colors"
-              style={{ color: isCorrect ? "#CCEB58" : "#f87171" }}
-            >
-              {open ? "Hide explanation ▲" : "Why? ▼"}
-            </button>
-          )}
-        </div>
-      </div>
-      {open && hasExplanation && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: "auto" }}
-          exit={{ opacity: 0, height: 0 }}
-          transition={{ duration: 0.2 }}
-          className="px-4 pb-3"
-        >
-          <div
-            className="rounded-lg p-3 text-xs leading-relaxed"
-            style={{ background: "rgba(255,255,255,0.04)", color: "#bbb" }}
-          >
-            💡 {q.explanation}
-          </div>
-        </motion.div>
-      )}
-    </div>
-  );
+const API_BASE = "http://localhost:3700";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface Question {
+  index: number;
+  question: string;
+  options: string[];
+  cognitiveLevel: string;
+  difficulty: number;
+  conceptTag: string;
 }
 
+interface AnswerResult {
+  isCorrect: boolean;
+  correctIndex: number;
+  explanation: string;
+  conceptTag: string;
+  totalShown: number;
+  totalCorrect: number;
+  sessionComplete: boolean;
+  nextQuestion: Question | null;
+  summary: Summary | null;
+}
+
+interface Summary {
+  score: number;
+  total: number;
+  grade: string;
+  passed: boolean;
+  percentage: number;
+  subtopicResult?: any;
+}
+
+type Screen = "question" | "feedback" | "done";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function normalizeQuestion(q: any): Question {
+  return {
+    index:          q.index ?? 0,
+    question:       q.question ?? q.text ?? "",
+    options:        q.options ?? [],
+    cognitiveLevel: q.cognitiveLevel ?? "",
+    difficulty:     q.difficulty ?? 0,
+    conceptTag:     q.conceptTag ?? "",
+  };
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function QuizPage() {
-  const router = useRouter();
-  const params = useParams();
-  const chapterId = params.id as string;
+  const router     = useRouter();
+  const params     = useParams();
+  const chapterId  = params.id as string;
   const subtopicId = params.subtopicId as string;
 
-  const student = useStudentStore((s) => s.student);
-  const currentSessionId = useStudentStore((s) => s.currentSessionId);
-  const currentQuestions = useStudentStore((s) => s.currentQuestions);
+  const student         = useStudentStore((s) => s.student);
+  const sessionId       = useStudentStore((s) => s.currentSessionId);
+  const initialQuestions = useStudentStore((s) => s.currentQuestions);
+  const updateChapterProgress = useStudentStore((s) => s.updateChapterProgress);
 
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [answers, setAnswers] = useState<Map<number, number>>(new Map());
-  const [submitted, setSubmitted] = useState(false);
-  const [results, setResults] = useState<any>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showExplanation, setShowExplanation] = useState(false);
+  // ── State ──────────────────────────────────────────────────────────────────
 
-  const questions = currentQuestions;
-  const current = questions[currentIndex];
-  const selectedAnswer = answers.get(currentIndex);
-  const progress = questions.length > 0 ? ((currentIndex + 1) / questions.length) * 100 : 0;
-  const allAnswered = answers.size === questions.length;
+  const [screen,         setScreen]         = useState<Screen>("question");
+  const [question,       setQuestion]       = useState<Question | null>(null);
+  const [selectedOption, setSelectedOption] = useState<number | null>(null);
+  const [answerResult,   setAnswerResult]   = useState<AnswerResult | null>(null);
+  const [summary,        setSummary]        = useState<Summary | null>(null);
+  const [isSubmitting,   setIsSubmitting]   = useState(false);
+  const [questionsShown, setQuestionsShown] = useState(1);
+  const [correct,        setCorrect]        = useState(0);
+  const [error,          setError]          = useState("");
 
-  const handleSelectOption = (idx: number) => {
-    if (submitted) return;
-    setAnswers(new Map(answers).set(currentIndex, idx));
-    setShowExplanation(false);
-  };
+  // ── Seed first question from Zustand store ─────────────────────────────────
 
-  const handleNext = () => {
-    setShowExplanation(false);
-    if (currentIndex < questions.length - 1) setCurrentIndex(currentIndex + 1);
-  };
-
-  const handlePrev = () => {
-    setShowExplanation(false);
-    if (currentIndex > 0) setCurrentIndex(currentIndex - 1);
-  };
-
-  const handleSubmit = async () => {
-    if (!student || !currentSessionId) return;
-    setIsSubmitting(true);
-    try {
-      const answersPayload = Array.from(answers.entries()).map(([qIndex, selectedOption]) => ({
-        questionIndex: qIndex,
-        selectedOption,
-      }));
-      const result = await quizAPI.submitAnswers(currentSessionId, student.id, answersPayload);
-      setResults(result);
-      setSubmitted(true);
-    } catch (err) {
-      console.error("Submit failed", err);
-    } finally {
-      setIsSubmitting(false);
+  useEffect(() => {
+    if (initialQuestions && initialQuestions.length > 0) {
+      setQuestion(normalizeQuestion(initialQuestions[0]));
     }
-  };
+  }, []);
 
-  const correctCount = submitted
-    ? questions.filter((q: any, i: number) => answers.get(i) === q.correctIndex).length
-    : 0;
-  const scorePercent = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
+  // ── Guard: no session ──────────────────────────────────────────────────────
 
-  if (questions.length === 0) {
+  if (!sessionId || !student) {
     return (
       <RouteGuard>
         <div className="min-h-screen flex items-center justify-center" style={{ background: "#141414" }}>
-          <div className="text-center">
+          <div className="text-center px-6">
             <p className="text-4xl mb-4">📚</p>
-            <p className="text-white font-semibold mb-2">No questions loaded</p>
+            <p className="text-white font-semibold mb-2">No session loaded</p>
             <p className="text-gray-500 text-sm mb-6">Please go back and read the study material first.</p>
             <button
               onClick={() => router.push(`/chapter/${chapterId}/subtopic/${subtopicId}`)}
@@ -144,59 +112,157 @@ export default function QuizPage() {
     );
   }
 
-  // Results screen
-  if (submitted) {
-    const passed = scorePercent >= 60;
+  // ── Submit answer ──────────────────────────────────────────────────────────
+
+  const handleConfirm = async () => {
+    if (selectedOption === null || !question || isSubmitting) return;
+    setIsSubmitting(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/quiz/answer`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({
+          studentId:     student.id,
+          sessionId,
+          questionIndex: question.index,
+          chosenAnswer:  selectedOption,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+
+      const result: AnswerResult = json.data ?? json;
+      setAnswerResult(result);
+      setQuestionsShown(result.totalShown);
+      setCorrect(result.totalCorrect);
+      setScreen("feedback");
+
+      if (result.sessionComplete) {
+        setSummary(result.summary);
+      }
+    } catch (err: any) {
+      setError(err?.message || "Failed to submit answer. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // ── Advance to next question ───────────────────────────────────────────────
+
+  const handleNext = () => {
+    if (!answerResult) return;
+    if (answerResult.sessionComplete) {
+      setScreen("done");
+      return;
+    }
+    if (answerResult.nextQuestion) {
+      setQuestion(normalizeQuestion(answerResult.nextQuestion));
+    }
+    setSelectedOption(null);
+    setAnswerResult(null);
+    setScreen("question");
+  };
+
+  // ── Progress helpers ───────────────────────────────────────────────────────
+
+  const progressPct = questionsShown > 0
+    ? Math.round((correct / questionsShown) * 100)
+    : 0;
+
+  const handlePostQuizNavigation = (targetPath: string) => {
+    const derivedPct = summary?.percentage ?? progressPct;
+    updateChapterProgress({
+      chapterId,
+      masteryLevel: derivedPct,
+      completedAt: new Date().toISOString(),
+    });
+    router.push(targetPath);
+  };
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // RESULTS SCREEN
+  // ════════════════════════════════════════════════════════════════════════════
+
+  if (screen === "done") {
+    const passed    = summary?.passed ?? (progressPct >= 60);
+    const finalPct  = summary?.percentage ?? progressPct;
+    const finalScore = summary?.score ?? correct;
+    const finalTotal = summary?.total ?? questionsShown;
+    const grade     = summary?.grade ?? (passed ? "Pass" : "Needs Work");
+
     return (
       <RouteGuard>
-        <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "#141414", fontFamily: "'Inter', sans-serif" }}>
-          <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="max-w-md w-full text-center">
+        <div
+          className="min-h-screen flex items-center justify-center px-4"
+          style={{ background: "#141414", fontFamily: "'Inter', sans-serif" }}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4 }}
+            className="max-w-sm w-full text-center"
+          >
+            {/* Score badge */}
             <motion.div
-              className="w-24 h-24 rounded-full flex items-center justify-center text-4xl mx-auto mb-6"
-              style={{ background: passed ? "rgba(204,235,88,0.15)" : "rgba(239,68,68,0.1)" }}
-              animate={{ scale: [1, 1.05, 1] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
+              className="w-28 h-28 rounded-full flex items-center justify-center text-5xl mx-auto mb-6"
+              style={{ background: passed ? "rgba(204,235,88,0.12)" : "rgba(239,68,68,0.1)" }}
+              animate={{ scale: [1, 1.06, 1] }}
+              transition={{ duration: 2, repeat: Infinity }}
             >
               {passed ? "🎯" : "📖"}
             </motion.div>
 
-            <h1 className="font-black text-white text-4xl mb-2" style={{ letterSpacing: "-0.02em" }}>
-              {scorePercent}%
+            <h1
+              className="font-black text-white mb-1"
+              style={{ fontSize: "clamp(2.5rem,10vw,4rem)", letterSpacing: "-0.03em" }}
+            >
+              {finalPct}%
             </h1>
-            <p className="font-semibold mb-1" style={{ color: passed ? "#CCEB58" : "#ef4444" }}>
-              {passed ? "Great job!" : "Keep practicing!"}
+            <p className="font-bold text-lg mb-1" style={{ color: passed ? "#CCEB58" : "#ef4444" }}>
+              {grade}
             </p>
             <p className="text-gray-500 text-sm mb-8">
-              {correctCount} of {questions.length} correct
+              {finalScore} of {finalTotal} correct
             </p>
 
-            {/* Mini result per question */}
-            <div className="space-y-2 mb-8 text-left">
-              {questions.map((q: any, i: number) => {
-                const userAns = answers.get(i);
-                const isCorrect = userAns === q.correctIndex;
-                return (
-                  <ResultCard key={i} q={q} isCorrect={isCorrect} userAns={userAns} />
-                );
-              })}
+            {/* Stat pills */}
+            <div className="flex gap-3 justify-center mb-8">
+              {[
+                { label: "Answered",  value: finalTotal },
+                { label: "Correct",   value: finalScore },
+                { label: "Accuracy",  value: `${finalPct}%` },
+              ].map((s) => (
+                <div
+                  key={s.label}
+                  className="flex-1 rounded-2xl py-3 px-2"
+                  style={{ background: "#1e1e1e", border: "1px solid #2a2a2a" }}
+                >
+                  <p className="font-black text-white text-xl">{s.value}</p>
+                  <p className="text-gray-600 text-xs mt-0.5">{s.label}</p>
+                </div>
+              ))}
             </div>
 
+            {/* Actions */}
             <div className="flex gap-3">
               <motion.button
-                onClick={() => router.push(`/chapter/${chapterId}`)}
+                onClick={() => handlePostQuizNavigation(`/chapter/${chapterId}`)}
                 whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
                 className="flex-1 py-3 rounded-full font-bold text-sm"
                 style={{ background: "#1e1e1e", border: "1px solid #2a2a2a", color: "#fff" }}
               >
-                ← Back
+                ← Chapter
               </motion.button>
               <motion.button
-                onClick={() => router.push(`/chapter/${chapterId}/subtopic/${subtopicId}`)}
+                onClick={() => handlePostQuizNavigation(`/chapter/${chapterId}/subtopic/${subtopicId}`)}
                 whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
                 className="flex-1 py-3 rounded-full font-bold text-sm"
                 style={{ background: "#CCEB58", color: "#141414" }}
               >
-                {passed ? "Next Topic" : "Retry →"}
+                {passed ? "Next Topic →" : "Retry →"}
               </motion.button>
             </div>
           </motion.div>
@@ -205,15 +271,29 @@ export default function QuizPage() {
     );
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // QUIZ SCREEN (question + feedback)
+  // ════════════════════════════════════════════════════════════════════════════
+
+  const isCorrect    = answerResult?.isCorrect ?? false;
+  const correctIndex = answerResult?.correctIndex ?? -1;
+
   return (
     <RouteGuard>
-      <div className="min-h-screen" style={{ background: "#141414", fontFamily: "'Inter', sans-serif" }}>
-        {/* Navbar */}
+      <div
+        className="min-h-screen"
+        style={{ background: "#141414", fontFamily: "'Inter', sans-serif" }}
+      >
+        {/* ── Navbar ── */}
         <motion.header
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="sticky top-0 z-30 px-6 py-4 flex items-center gap-4"
-          style={{ background: "rgba(20,20,20,0.9)", backdropFilter: "blur(16px)", borderBottom: "1px solid #222" }}
+          style={{
+            background:     "rgba(20,20,20,0.9)",
+            backdropFilter: "blur(16px)",
+            borderBottom:   "1px solid #222",
+          }}
         >
           <motion.button
             onClick={() => router.push(`/chapter/${chapterId}/subtopic/${subtopicId}`)}
@@ -224,66 +304,111 @@ export default function QuizPage() {
             ← Study Material
           </motion.button>
           <div className="flex-1" />
-          <span className="text-gray-500 text-xs font-medium">{answers.size}/{questions.length} answered</span>
+          <span className="text-gray-500 text-xs font-medium">
+            {correct}/{questionsShown} correct
+          </span>
         </motion.header>
 
         <div className="max-w-2xl mx-auto px-6 py-10">
-          {/* Progress bar */}
+
+          {/* ── Accuracy bar ── */}
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-8">
             <div className="flex justify-between items-center mb-2">
-              <span className="text-white font-semibold text-sm">Question {currentIndex + 1} <span className="text-gray-600">of {questions.length}</span></span>
-              <span className="text-xs font-bold" style={{ color: "#CCEB58" }}>{Math.round(progress)}%</span>
+              <span className="text-white font-semibold text-sm">
+                Question <span className="text-gray-600">{questionsShown} shown</span>
+              </span>
+              <span className="text-xs font-bold" style={{ color: "#CCEB58" }}>
+                {progressPct}% accuracy
+              </span>
             </div>
             <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#252525" }}>
-              <motion.div className="h-full rounded-full" style={{ background: "#CCEB58" }} animate={{ width: `${progress}%` }} transition={{ duration: 0.4 }} />
+              <motion.div
+                className="h-full rounded-full"
+                style={{ background: "#CCEB58" }}
+                animate={{ width: `${progressPct}%` }}
+                transition={{ duration: 0.5 }}
+              />
             </div>
           </motion.div>
 
-          {/* Question card */}
+          {/* ── Question card ── */}
           <AnimatePresence mode="wait">
             <motion.div
-              key={currentIndex}
-              initial={{ opacity: 0, x: 20 }}
+              key={question?.index}
+              initial={{ opacity: 0, x: 30 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
+              exit={{ opacity: 0, x: -30 }}
               transition={{ duration: 0.25 }}
               className="rounded-2xl p-6 mb-6"
               style={{ background: "#1e1e1e", border: "1.5px solid #2a2a2a" }}
             >
               <div className="flex items-center gap-2 mb-4">
-                <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(204,235,88,0.1)", color: "#CCEB58" }}>
-                  {current?.cognitiveLevel?.replace(/_/g, " ").toUpperCase() || "Q"}
+                <span
+                  className="text-xs font-bold px-2 py-0.5 rounded-full"
+                  style={{ background: "rgba(204,235,88,0.1)", color: "#CCEB58" }}
+                >
+                  {question?.cognitiveLevel?.replace(/_/g, " ").toUpperCase() || "QUESTION"}
                 </span>
-                <span className="text-xs text-gray-600">difficulty {current?.difficulty?.toFixed(1)}</span>
+                <span className="text-xs text-gray-600">
+                  difficulty {question?.difficulty?.toFixed(1)}
+                </span>
+                {question?.conceptTag && (
+                  <span className="text-xs text-gray-600 ml-auto truncate max-w-[140px]">
+                    #{question.conceptTag}
+                  </span>
+                )}
               </div>
-              <h2 className="text-white font-semibold text-lg leading-snug">{current?.text}</h2>
+              <h2 className="text-white font-semibold text-lg leading-snug">
+                {question?.question}
+              </h2>
             </motion.div>
           </AnimatePresence>
 
-          {/* Options */}
-          <div className="space-y-3 mb-8">
-            {(current?.options || []).map((option: string, i: number) => {
-              const isSelected = selectedAnswer === i;
+          {/* ── Options ── */}
+          <div className="space-y-3 mb-6">
+            {(question?.options ?? []).map((option, i) => {
+              const isSelected  = selectedOption === i;
+              const revealed    = screen === "feedback";
+              const isRight     = revealed && i === correctIndex;
+              const isWrong     = revealed && isSelected && !isCorrect && i === selectedOption;
+
+              let borderColor = "#252525";
+              let bgColor     = "#1a1a1a";
+              let textColor   = "#ccc";
+
+              if (revealed) {
+                if (isRight)  { borderColor = "#4ade80"; bgColor = "rgba(74,222,128,0.08)";  textColor = "#4ade80"; }
+                if (isWrong)  { borderColor = "#ef4444"; bgColor = "rgba(239,68,68,0.08)";   textColor = "#ef4444"; }
+              } else if (isSelected) {
+                borderColor = "#CCEB58";
+                bgColor     = "rgba(204,235,88,0.08)";
+                textColor   = "#CCEB58";
+              }
+
               return (
                 <motion.button
                   key={i}
-                  onClick={() => handleSelectOption(i)}
-                  whileHover={{ x: 4 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="w-full text-left rounded-xl p-4 flex items-start gap-3 transition-all"
+                  onClick={() => { if (screen === "question") setSelectedOption(i); }}
+                  whileHover={screen === "question" ? { x: 4 } : {}}
+                  whileTap={screen === "question" ? { scale: 0.98 } : {}}
+                  className="w-full text-left rounded-xl p-4 flex items-start gap-3 transition-colors"
                   style={{
-                    background: isSelected ? "rgba(204,235,88,0.08)" : "#1a1a1a",
-                    border: `1.5px solid ${isSelected ? "#CCEB58" : "#252525"}`,
-                    boxShadow: isSelected ? "0 0 16px rgba(204,235,88,0.1)" : "none",
+                    background:  bgColor,
+                    border:      `1.5px solid ${borderColor}`,
+                    cursor:      screen === "question" ? "pointer" : "default",
+                    boxShadow:   isRight ? "0 0 16px rgba(74,222,128,0.12)" : isSelected && !revealed ? "0 0 16px rgba(204,235,88,0.1)" : "none",
                   }}
                 >
                   <span
                     className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold"
-                    style={{ background: isSelected ? "#CCEB58" : "#252525", color: isSelected ? "#141414" : "#666" }}
+                    style={{
+                      background: isRight ? "#4ade80" : isWrong ? "#ef4444" : isSelected && !revealed ? "#CCEB58" : "#252525",
+                      color:      isRight || isWrong || (isSelected && !revealed) ? "#141414" : "#666",
+                    }}
                   >
-                    {String.fromCharCode(65 + i)}
+                    {isRight ? "✓" : isWrong ? "✗" : String.fromCharCode(65 + i)}
                   </span>
-                  <span className="text-sm leading-snug mt-0.5" style={{ color: isSelected ? "#CCEB58" : "#ccc" }}>
+                  <span className="text-sm leading-snug mt-0.5" style={{ color: textColor }}>
                     {option}
                   </span>
                 </motion.button>
@@ -291,56 +416,93 @@ export default function QuizPage() {
             })}
           </div>
 
-          {/* Navigation */}
-          <div className="flex gap-3">
-            <motion.button
-              onClick={handlePrev}
-              disabled={currentIndex === 0}
-              whileHover={currentIndex > 0 ? { scale: 1.03 } : {}}
-              className="px-6 py-3 rounded-full font-bold text-sm disabled:opacity-30"
-              style={{ background: "#1e1e1e", border: "1px solid #2a2a2a", color: "#fff" }}
-            >
-              ← Prev
-            </motion.button>
-
-            {currentIndex < questions.length - 1 ? (
-              <motion.button
-                onClick={handleNext}
-                disabled={selectedAnswer === undefined}
-                whileHover={selectedAnswer !== undefined ? { scale: 1.03 } : {}}
-                className="flex-1 py-3 rounded-full font-bold text-sm disabled:opacity-30"
-                style={{ background: selectedAnswer !== undefined ? "#CCEB58" : "#1e1e1e", color: selectedAnswer !== undefined ? "#141414" : "#555", border: "1px solid #2a2a2a" }}
+          {/* ── Explanation (shown after answer) ── */}
+          <AnimatePresence>
+            {screen === "feedback" && answerResult && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="rounded-2xl p-5 mb-6"
+                style={{
+                  background:   isCorrect ? "rgba(74,222,128,0.06)" : "rgba(239,68,68,0.06)",
+                  border:       `1px solid ${isCorrect ? "rgba(74,222,128,0.25)" : "rgba(239,68,68,0.25)"}`,
+                }}
               >
-                Next →
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">{isCorrect ? "✅" : "❌"}</span>
+                  <span
+                    className="font-bold text-sm"
+                    style={{ color: isCorrect ? "#4ade80" : "#ef4444" }}
+                  >
+                    {isCorrect ? "Correct!" : "Incorrect"}
+                  </span>
+                </div>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  {answerResult.explanation}
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* ── Error ── */}
+          {error && (
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-red-400 text-sm text-center mb-4"
+            >
+              {error}
+            </motion.p>
+          )}
+
+          {/* ── Action button ── */}
+          <AnimatePresence mode="wait">
+            {screen === "question" ? (
+              <motion.button
+                key="confirm"
+                onClick={handleConfirm}
+                disabled={selectedOption === null || isSubmitting}
+                whileHover={selectedOption !== null ? { scale: 1.02, boxShadow: "0 0 30px rgba(204,235,88,0.25)" } : {}}
+                whileTap={selectedOption !== null ? { scale: 0.97 } : {}}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="w-full py-4 rounded-2xl font-bold text-base transition-all"
+                style={{
+                  background: selectedOption !== null ? "#CCEB58" : "#1e1e1e",
+                  color:      selectedOption !== null ? "#141414"  : "#444",
+                  border:     "1px solid #2a2a2a",
+                  cursor:     selectedOption !== null ? "pointer"  : "not-allowed",
+                }}
+              >
+                {isSubmitting
+                  ? "Checking…"
+                  : selectedOption === null
+                  ? "Select an answer"
+                  : "Confirm Answer →"}
               </motion.button>
             ) : (
               <motion.button
-                onClick={handleSubmit}
-                disabled={isSubmitting || !allAnswered}
-                whileHover={allAnswered ? { scale: 1.03 } : {}}
-                className="flex-1 py-3 rounded-full font-bold text-sm disabled:opacity-30"
-                style={{ background: allAnswered ? "#CCEB58" : "#1e1e1e", color: allAnswered ? "#141414" : "#555", border: "1px solid #2a2a2a" }}
+                key="next"
+                onClick={handleNext}
+                whileHover={{ scale: 1.02, boxShadow: "0 0 30px rgba(204,235,88,0.25)" }}
+                whileTap={{ scale: 0.97 }}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="w-full py-4 rounded-2xl font-bold text-base transition-all"
+                style={{
+                  background: "#CCEB58",
+                  color:      "#141414",
+                  boxShadow:  "0 0 20px rgba(204,235,88,0.2)",
+                }}
               >
-                {isSubmitting ? "Submitting…" : `Submit Quiz (${answers.size}/${questions.length})`}
+                {answerResult?.sessionComplete ? "See Results →" : "Next Question →"}
               </motion.button>
             )}
-          </div>
+          </AnimatePresence>
 
-          {/* Question dots nav */}
-          <div className="flex justify-center gap-2 mt-6">
-            {questions.map((_: any, i: number) => (
-              <button
-                key={i}
-                onClick={() => { setShowExplanation(false); setCurrentIndex(i); }}
-                className="transition-all rounded-full"
-                style={{
-                  width: i === currentIndex ? 20 : 8,
-                  height: 8,
-                  background: answers.has(i) ? "#CCEB58" : i === currentIndex ? "#555" : "#2a2a2a",
-                }}
-              />
-            ))}
-          </div>
         </div>
       </div>
     </RouteGuard>

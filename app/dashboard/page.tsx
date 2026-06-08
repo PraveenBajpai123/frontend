@@ -1,12 +1,12 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useStudentStore } from "@/lib/store";
-import { motion } from "framer-motion";
+import { reviewDue as reviewDueAPI } from "@/lib/api";
+import { motion, AnimatePresence } from "framer-motion";
 import { RouteGuard } from "@/components/route-guard";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { review as reviewAPI, graph as graphAPI } from "@/lib/api";
 
 const SUBJECTS = [
   {
@@ -53,31 +53,37 @@ const SUBJECTS = [
 
 export default function DashboardPage() {
   const router = useRouter();
-  const student = useStudentStore((state) => state.student);
+  const student         = useStudentStore((state) => state.student);
   const chapterProgress = useStudentStore((state) => state.chapterProgress);
 
-  const [reviewDue, setReviewDue] = useState<number>(0);
-  const [recommendations, setRecommendations] = useState<Array<{
-    id: string; name: string; mastery: number; masteryLevel: string;
-  }>>([]);
-  const [reviewLoading, setReviewLoading] = useState(false);
+  // ── Review-due state ──────────────────────────────────────────────────────
+  interface ReviewItem {
+    conceptId:        string;
+    conceptName:      string;
+    tag:              string;
+    effectiveMastery: number;
+    mastery:          number;
+    retentionScore:   number;
+    daysSinceAttempt: number;
+  }
+  const [dueItems,    setDueItems]    = useState<ReviewItem[]>([]);
+  const [dueLoading,  setDueLoading]  = useState(false);
+
+  useEffect(() => {
+    if (!student) return;
+    setDueLoading(true);
+    reviewDueAPI.get(student.id)
+      .then(setDueItems)
+      .catch(() => setDueItems([]))
+      .finally(() => setDueLoading(false));
+  }, [student]);
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   const avgMastery =
     chapterProgress.length > 0
       ? Math.round(chapterProgress.reduce((a, p) => a + p.masteryLevel, 0) / chapterProgress.length)
       : 0;
-
-  useEffect(() => {
-    if (!student?.id) return;
-    // Fetch review due count
-    reviewAPI.getQueue(student.id, 1)
-      .then((q) => setReviewDue(q.totalDue))
-      .catch(() => {});
-    // Fetch recommendations
-    graphAPI.getRecommendations(student.id, "Chemistry", 12, 3)
-      .then(setRecommendations)
-      .catch(() => {});
-  }, [student?.id]);
 
   return (
     <RouteGuard>
@@ -148,7 +154,7 @@ export default function DashboardPage() {
           </motion.div>
 
           {/* Stats row */}
-          <motion.div className="flex gap-4 mb-6 flex-wrap" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.1 } } }}>
+          <motion.div className="flex gap-4 mb-12 flex-wrap" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.1 } } }}>
             {[
               { label: "Chapters Studied", val: chapterProgress.length },
               { label: "Avg Mastery", val: `${avgMastery}%` },
@@ -160,91 +166,6 @@ export default function DashboardPage() {
               </motion.div>
             ))}
           </motion.div>
-
-          {/* ── Review Queue Banner (Phase 1) ──────────────────────────────── */}
-          {reviewDue > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="rounded-2xl p-5 mb-6 flex items-center gap-4 cursor-pointer group"
-              style={{
-                background: "linear-gradient(135deg, rgba(239,68,68,0.12) 0%, rgba(239,68,68,0.06) 100%)",
-                border: "1.5px solid rgba(239,68,68,0.3)",
-              }}
-              onClick={() => {
-                if (!student) return;
-                setReviewLoading(true);
-                router.push("/review");
-              }}
-            >
-              <div
-                className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ background: "rgba(239,68,68,0.15)" }}
-              >
-                <span className="text-2xl">🧠</span>
-              </div>
-              <div className="flex-1">
-                <p className="text-white font-black text-base">
-                  {reviewDue} concept{reviewDue !== 1 ? "s" : ""} fading from memory
-                </p>
-                <p className="text-gray-400 text-xs mt-0.5">
-                  Your spaced repetition review queue is ready — review now for maximum retention
-                </p>
-              </div>
-              <motion.span
-                className="text-sm font-bold flex-shrink-0"
-                style={{ color: "#f87171" }}
-                animate={{ x: [0, 4, 0] }}
-                transition={{ duration: 1.5, repeat: Infinity }}
-              >
-                Review →
-              </motion.span>
-            </motion.div>
-          )}
-
-          {/* ── Study Next recommendations (Phase 0) ─────────────────────── */}
-          {recommendations.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="rounded-2xl p-5 mb-8"
-              style={{ background: "#1a1a1a", border: "1px solid #2a2a2a" }}
-            >
-              <p className="text-gray-500 text-xs uppercase tracking-wider font-semibold mb-3">
-                📚 Recommended to Study Next
-              </p>
-              <div className="flex flex-col gap-2">
-                {recommendations.map((rec) => (
-                  <div
-                    key={rec.id}
-                    className="flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all hover:bg-white/5"
-                    onClick={() => router.push(`/subject/Chemistry`)}
-                  >
-                    <div className="flex-1">
-                      <p className="text-white text-sm font-semibold">{rec.name}</p>
-                      <p className="text-gray-600 text-xs capitalize">{rec.masteryLevel.replace(/_/g, " ")}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 w-16 rounded-full overflow-hidden" style={{ background: "#252525" }}>
-                        <div
-                          className="h-full rounded-full"
-                          style={{
-                            width: `${Math.round(rec.mastery * 100)}%`,
-                            background: rec.mastery >= 0.6 ? "#CCEB58" : rec.mastery >= 0.3 ? "#facc15" : "#ef4444",
-                          }}
-                        />
-                      </div>
-                      <span className="text-xs font-bold" style={{ color: "#888" }}>
-                        {Math.round(rec.mastery * 100)}%
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          )}
 
           {/* Subject grid */}
           <motion.div
@@ -314,6 +235,140 @@ export default function DashboardPage() {
                 </div>
               </motion.button>
             ))}
+          </motion.div>
+
+          {/* ── Due for Review ── */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35 }}
+            className="mt-12"
+          >
+            <div className="flex items-center gap-3 mb-5">
+              <span className="text-2xl">⏰</span>
+              <div>
+                <h2 className="text-white font-black text-xl" style={{ letterSpacing: "-0.01em" }}>Due for Review</h2>
+                <p className="text-gray-600 text-xs mt-0.5">Concepts you've learned but may be forgetting</p>
+              </div>
+              {dueItems.length > 0 && (
+                <span
+                  className="ml-auto text-xs font-bold px-2.5 py-1 rounded-full"
+                  style={{ background: "rgba(251,191,36,0.12)", color: "#fbbf24" }}
+                >
+                  {dueItems.length} due
+                </span>
+              )}
+            </div>
+
+            {/* Loading skeleton */}
+            {dueLoading && (
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="rounded-2xl h-16 animate-pulse"
+                    style={{ background: "#1a1a1a" }}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Empty state */}
+            {!dueLoading && dueItems.length === 0 && (
+              <div
+                className="rounded-2xl p-8 text-center"
+                style={{ background: "#1a1a1a", border: "1px solid #222" }}
+              >
+                <p className="text-3xl mb-2">✅</p>
+                <p className="text-white font-semibold text-sm">All caught up!</p>
+                <p className="text-gray-600 text-xs mt-1">No concepts due for review right now.</p>
+              </div>
+            )}
+
+            {/* Review cards */}
+            {!dueLoading && dueItems.length > 0 && (
+              <AnimatePresence>
+                <motion.div
+                  className="space-y-3"
+                  initial="hidden"
+                  animate="visible"
+                  variants={{ visible: { transition: { staggerChildren: 0.06 } } }}
+                >
+                  {dueItems.map((item) => {
+                    const decay = item.mastery > 0
+                      ? Math.round(((item.mastery - item.effectiveMastery) / item.mastery) * 100)
+                      : 0;
+                    // Tag often looks like "chemical_bonding_covalent_bonds" — prettify it
+                    const topicHint = item.tag
+                      .replace(/_/g, " ")
+                      .replace(/\b\w/g, (c) => c.toUpperCase())
+                      .split(" ")
+                      .slice(0, 4)
+                      .join(" ");
+
+                    return (
+                      <motion.div
+                        key={item.conceptId}
+                        variants={{ hidden: { opacity: 0, x: -16 }, visible: { opacity: 1, x: 0 } }}
+                        className="group rounded-2xl p-4 flex items-center gap-4 transition-all"
+                        style={{
+                          background: "#1a1a1a",
+                          border: "1.5px solid #222",
+                        }}
+                        onMouseEnter={(e) => {
+                          (e.currentTarget as HTMLElement).style.borderColor = "#fbbf24";
+                          (e.currentTarget as HTMLElement).style.boxShadow = "0 0 20px rgba(251,191,36,0.08)";
+                        }}
+                        onMouseLeave={(e) => {
+                          (e.currentTarget as HTMLElement).style.borderColor = "#222";
+                          (e.currentTarget as HTMLElement).style.boxShadow = "none";
+                        }}
+                      >
+                        {/* Urgency dot */}
+                        <div
+                          className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold"
+                          style={{ background: "rgba(251,191,36,0.1)", color: "#fbbf24" }}
+                        >
+                          {item.daysSinceAttempt}d
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white font-semibold text-sm truncate">{item.conceptName}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-gray-600 text-xs truncate">{topicHint}</span>
+                            {decay > 0 && (
+                              <span className="text-xs font-semibold flex-shrink-0" style={{ color: "#ef4444" }}>
+                                ↓{decay}% decay
+                              </span>
+                            )}
+                          </div>
+                          {/* Retention bar */}
+                          <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: "#252525" }}>
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${item.effectiveMastery}%`,
+                                background: item.effectiveMastery < 30 ? "#ef4444" : item.effectiveMastery < 60 ? "#f97316" : "#eab308",
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Action */}
+                        <Link
+                          href="/subject/Chemistry"
+                          className="flex-shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-all"
+                          style={{ background: "rgba(251,191,36,0.1)", color: "#fbbf24" }}
+                        >
+                          Review →
+                        </Link>
+                      </motion.div>
+                    );
+                  })}
+                </motion.div>
+              </AnimatePresence>
+            )}
           </motion.div>
         </div>
       </div>

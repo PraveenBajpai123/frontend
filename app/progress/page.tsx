@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useStudentStore } from "@/lib/store";
 import { graph, history } from "@/lib/api";
@@ -39,43 +39,62 @@ interface HistoryEntry {
 export default function ProgressPage() {
   const router = useRouter();
   const student = useStudentStore((state) => state.student);
-  const chapterProgress = useStudentStore((state) => state.chapterProgress);
   
   const [graphData, setGraphData] = useState<KnowledgeGraphData | null>(null);
   const [historyData, setHistoryData] = useState<HistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        if (!student) return;
-
-        const [graphResult, historyResult] = await Promise.all([
-          graph.getKnowledgeGraph(student.id),
-          history.getHistory(student.id),
-        ]);
-
-        setGraphData(graphResult);
-        setHistoryData(historyResult);
-      } catch (err) {
-        console.error("Failed to load progress data", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    if (student) {
-      fetchData();
+  const fetchData = useCallback(async () => {
+    if (!student) return;
+    try {
+      const [graphResult, historyResult] = await Promise.all([
+        graph.getKnowledgeGraph(student.id),
+        history.getHistory(student.id),
+      ]);
+      setGraphData(graphResult);
+      setHistoryData(historyResult);
+      setLastUpdatedAt(new Date());
+    } catch (err) {
+      console.error("Failed to load progress data", err);
+    } finally {
+      setIsLoading(false);
     }
   }, [student]);
 
+  useEffect(() => {
+    if (!student) return;
+    setIsLoading(true);
+    fetchData();
+  }, [student, fetchData]);
+
+  useEffect(() => {
+    if (!student) return;
+
+    const handleFocusRefresh = () => {
+      fetchData();
+    };
+
+    const pollId = window.setInterval(fetchData, 15000);
+    window.addEventListener("focus", handleFocusRefresh);
+    document.addEventListener("visibilitychange", handleFocusRefresh);
+
+    return () => {
+      window.clearInterval(pollId);
+      window.removeEventListener("focus", handleFocusRefresh);
+      document.removeEventListener("visibilitychange", handleFocusRefresh);
+    };
+  }, [student, fetchData]);
+
   const totalMastery =
-    chapterProgress.length > 0
+    graphData && graphData.nodes.length > 0
       ? Math.round(
-        chapterProgress.reduce((a, p) => a + p.masteryLevel, 0) /
-        chapterProgress.length
-      )
+          graphData.nodes.reduce((sum, node) => sum + node.mastery, 0) /
+            graphData.nodes.length
+        )
       : 0;
+
+  const topicsCompleted = graphData?.nodes?.length ?? 0;
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -92,7 +111,10 @@ export default function ProgressPage() {
 
   return (
     <RouteGuard>
-      <div className="min-h-screen bg-background px-4 py-12">
+      <div
+        className="min-h-screen px-4 py-12"
+        style={{ background: "#141414", fontFamily: "'Inter', sans-serif" }}
+      >
         <div className="max-w-6xl mx-auto">
           {/* Header */}
           <motion.div
@@ -101,16 +123,22 @@ export default function ProgressPage() {
             animate={{ opacity: 1, y: 0 }}
           >
             <div>
-              <h1 className="text-4xl font-bold text-foreground mb-2">
+              <h1 className="text-4xl font-black text-white mb-2">
                 Learning Progress
               </h1>
-              <p className="text-muted-foreground">
+              <p className="text-gray-500">
                 Track your chemistry mastery over time
               </p>
+              {lastUpdatedAt && (
+                <p className="text-gray-600 text-xs mt-2">
+                  Last updated: {lastUpdatedAt.toLocaleTimeString()}
+                </p>
+              )}
             </div>
             <button
               onClick={() => router.push("/dashboard")}
-              className="text-accent hover:underline"
+              className="text-sm font-semibold transition-colors"
+              style={{ color: "#CCEB58" }}
             >
               Back to Dashboard
             </button>
@@ -124,39 +152,43 @@ export default function ProgressPage() {
             animate="visible"
           >
             <motion.div
-              className="bg-white rounded-lg p-6 border border-border shadow-rv hover:shadow-lg transition-shadow"
+              className="rounded-xl p-6 transition-shadow"
+              style={{ background: "#1e1e1e", border: "1px solid #2a2a2a" }}
               variants={itemVariants}
             >
-              <p className="text-muted-foreground text-sm mb-2">Overall Mastery</p>
-              <p className="text-3xl font-bold text-rv-lime">{totalMastery}%</p>
+              <p className="text-gray-500 text-sm mb-2">Overall Mastery</p>
+              <p className="text-3xl font-black" style={{ color: "#CCEB58" }}>{totalMastery}%</p>
             </motion.div>
 
             <motion.div
-              className="bg-white rounded-lg p-6 border border-border shadow-rv hover:shadow-lg transition-shadow"
+              className="rounded-xl p-6 transition-shadow"
+              style={{ background: "#1e1e1e", border: "1px solid #2a2a2a" }}
               variants={itemVariants}
             >
-              <p className="text-muted-foreground text-sm mb-2">Topics Completed</p>
-              <p className="text-3xl font-bold text-rv-lime-light">
-                {chapterProgress.length}
+              <p className="text-gray-500 text-sm mb-2">Topics Completed</p>
+              <p className="text-3xl font-black" style={{ color: "#CCEB58" }}>
+                {topicsCompleted}
               </p>
             </motion.div>
 
             <motion.div
-              className="bg-white rounded-lg p-6 border border-border shadow-rv hover:shadow-lg transition-shadow"
+              className="rounded-xl p-6 transition-shadow"
+              style={{ background: "#1e1e1e", border: "1px solid #2a2a2a" }}
               variants={itemVariants}
             >
-              <p className="text-muted-foreground text-sm mb-2">Quizzes Taken</p>
-              <p className="text-3xl font-bold text-rv-black">
+              <p className="text-gray-500 text-sm mb-2">Quizzes Taken</p>
+              <p className="text-3xl font-black text-white">
                 {historyData.length}
               </p>
             </motion.div>
 
             <motion.div
-              className="bg-white rounded-lg p-6 border border-border shadow-rv hover:shadow-lg transition-shadow"
+              className="rounded-xl p-6 transition-shadow"
+              style={{ background: "#1e1e1e", border: "1px solid #2a2a2a" }}
               variants={itemVariants}
             >
-              <p className="text-muted-foreground text-sm mb-2">Avg Score</p>
-              <p className="text-3xl font-bold text-rv-lime">
+              <p className="text-gray-500 text-sm mb-2">Avg Score</p>
+              <p className="text-3xl font-black" style={{ color: "#CCEB58" }}>
                 {historyData.length > 0
                   ? Math.round(
                     historyData.reduce((a, h) => a + h.score, 0) /
@@ -169,14 +201,14 @@ export default function ProgressPage() {
           </motion.div>
 
           {/* Knowledge Graph */}
-          {!isLoading && graphData && (
+          {!isLoading && graphData && graphData.nodes?.length > 0 && (
             <motion.div
               className="mb-12"
               variants={itemVariants}
               initial="hidden"
               animate="visible"
             >
-              <h2 className="text-2xl font-semibold text-foreground mb-6">
+              <h2 className="text-2xl font-bold text-white mb-6">
                 Knowledge Graph
               </h2>
               <KnowledgeGraphD3
@@ -193,12 +225,13 @@ export default function ProgressPage() {
 
           {/* History */}
           <motion.div
-            className="bg-white rounded-lg p-8 border border-border shadow-rv"
+            className="rounded-xl p-8"
+            style={{ background: "#1e1e1e", border: "1px solid #2a2a2a" }}
             variants={itemVariants}
             initial="hidden"
             animate="visible"
           >
-            <h2 className="text-2xl font-semibold text-foreground mb-6">
+            <h2 className="text-2xl font-bold text-white mb-6">
               Quiz History
             </h2>
 
@@ -214,23 +247,24 @@ export default function ProgressPage() {
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: index * 0.05 }}
-                    className="flex items-center justify-between p-4 rounded-lg bg-muted border border-border hover:border-rv-lime transition-colors hover:shadow-rv"
+                    className="flex items-center justify-between p-4 rounded-lg transition-colors"
+                    style={{ background: "#1a1a1a", border: "1px solid #252525" }}
                   >
                     <div>
-                      <p className="text-rv-black font-semibold">
+                      <p className="text-white font-semibold">
                         {entry.chapterTitle || `Chapter ${entry.chapterId}`}
                       </p>
-                      <p className="text-muted-foreground text-sm">
+                      <p className="text-gray-500 text-sm">
                         {entry.subtopicTitle ||
                           `Subtopic ${entry.subtopicId}`}
                       </p>
                     </div>
 
                     <div className="text-right">
-                      <p className="text-rv-lime font-bold">
+                      <p className="font-bold" style={{ color: "#CCEB58" }}>
                         {entry.score}%
                       </p>
-                      <p className="text-muted-foreground text-sm">
+                      <p className="text-gray-500 text-sm">
                         {new Date(entry.completedAt).toLocaleDateString()}
                       </p>
                     </div>
@@ -238,7 +272,7 @@ export default function ProgressPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-muted-foreground text-center py-8">
+              <p className="text-gray-500 text-center py-8">
                 No quiz history yet. Start taking quizzes to see your progress!
               </p>
             )}
