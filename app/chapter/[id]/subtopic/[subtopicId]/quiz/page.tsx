@@ -7,6 +7,60 @@ import { quiz as quizAPI } from "@/lib/api";
 import { motion, AnimatePresence } from "framer-motion";
 import { RouteGuard } from "@/components/route-guard";
 
+/** Collapsible per-question result card showing explanation on wrong answers */
+function ResultCard({ q, isCorrect, userAns }: { q: any; isCorrect: boolean; userAns: number | undefined }) {
+  const [open, setOpen] = useState(false);
+  const hasExplanation = !!q.explanation;
+  return (
+    <div
+      className="rounded-xl overflow-hidden"
+      style={{
+        background: isCorrect ? "rgba(204,235,88,0.07)" : "rgba(239,68,68,0.07)",
+        border: `1px solid ${isCorrect ? "rgba(204,235,88,0.2)" : "rgba(239,68,68,0.2)"}`,
+      }}
+    >
+      <div className="p-3 flex items-start gap-3">
+        <span className="text-sm mt-0.5 flex-shrink-0">{isCorrect ? "✓" : "✗"}</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-white text-xs font-medium leading-snug">{q.text}</p>
+          {!isCorrect && (
+            <p className="text-gray-400 text-xs mt-1">
+              Your answer: <span style={{ color: "#ef4444" }}>{userAns !== undefined ? q.options?.[userAns] : "—"}</span>
+              {"  ·  "}
+              Correct: <span style={{ color: "#CCEB58" }}>{q.options?.[q.correctIndex]}</span>
+            </p>
+          )}
+          {hasExplanation && (
+            <button
+              onClick={() => setOpen((v) => !v)}
+              className="text-xs font-semibold mt-1.5 transition-colors"
+              style={{ color: isCorrect ? "#CCEB58" : "#f87171" }}
+            >
+              {open ? "Hide explanation ▲" : "Why? ▼"}
+            </button>
+          )}
+        </div>
+      </div>
+      {open && hasExplanation && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.2 }}
+          className="px-4 pb-3"
+        >
+          <div
+            className="rounded-lg p-3 text-xs leading-relaxed"
+            style={{ background: "rgba(255,255,255,0.04)", color: "#bbb" }}
+          >
+            💡 {q.explanation}
+          </div>
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
 export default function QuizPage() {
   const router = useRouter();
   const params = useParams();
@@ -122,13 +176,7 @@ export default function QuizPage() {
                 const userAns = answers.get(i);
                 const isCorrect = userAns === q.correctIndex;
                 return (
-                  <div key={i} className="rounded-xl p-3 flex items-start gap-3" style={{ background: isCorrect ? "rgba(204,235,88,0.07)" : "rgba(239,68,68,0.07)", border: `1px solid ${isCorrect ? "rgba(204,235,88,0.2)" : "rgba(239,68,68,0.2)"}` }}>
-                    <span className="text-sm mt-0.5">{isCorrect ? "✓" : "✗"}</span>
-                    <div>
-                      <p className="text-white text-xs font-medium leading-snug">{q.text}</p>
-                      {!isCorrect && <p className="text-gray-400 text-xs mt-1">Correct: {q.options?.[q.correctIndex]}</p>}
-                    </div>
-                  </div>
+                  <ResultCard key={i} q={q} isCorrect={isCorrect} userAns={userAns} />
                 );
               })}
             </div>

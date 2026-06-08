@@ -5,6 +5,8 @@ import { useStudentStore } from "@/lib/store";
 import { motion } from "framer-motion";
 import { RouteGuard } from "@/components/route-guard";
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { review as reviewAPI, graph as graphAPI } from "@/lib/api";
 
 const SUBJECTS = [
   {
@@ -54,10 +56,28 @@ export default function DashboardPage() {
   const student = useStudentStore((state) => state.student);
   const chapterProgress = useStudentStore((state) => state.chapterProgress);
 
+  const [reviewDue, setReviewDue] = useState<number>(0);
+  const [recommendations, setRecommendations] = useState<Array<{
+    id: string; name: string; mastery: number; masteryLevel: string;
+  }>>([]);
+  const [reviewLoading, setReviewLoading] = useState(false);
+
   const avgMastery =
     chapterProgress.length > 0
       ? Math.round(chapterProgress.reduce((a, p) => a + p.masteryLevel, 0) / chapterProgress.length)
       : 0;
+
+  useEffect(() => {
+    if (!student?.id) return;
+    // Fetch review due count
+    reviewAPI.getQueue(student.id, 1)
+      .then((q) => setReviewDue(q.totalDue))
+      .catch(() => {});
+    // Fetch recommendations
+    graphAPI.getRecommendations(student.id, "Chemistry", 12, 3)
+      .then(setRecommendations)
+      .catch(() => {});
+  }, [student?.id]);
 
   return (
     <RouteGuard>
@@ -128,7 +148,7 @@ export default function DashboardPage() {
           </motion.div>
 
           {/* Stats row */}
-          <motion.div className="flex gap-4 mb-12 flex-wrap" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.1 } } }}>
+          <motion.div className="flex gap-4 mb-6 flex-wrap" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.1 } } }}>
             {[
               { label: "Chapters Studied", val: chapterProgress.length },
               { label: "Avg Mastery", val: `${avgMastery}%` },
@@ -140,6 +160,91 @@ export default function DashboardPage() {
               </motion.div>
             ))}
           </motion.div>
+
+          {/* ── Review Queue Banner (Phase 1) ──────────────────────────────── */}
+          {reviewDue > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="rounded-2xl p-5 mb-6 flex items-center gap-4 cursor-pointer group"
+              style={{
+                background: "linear-gradient(135deg, rgba(239,68,68,0.12) 0%, rgba(239,68,68,0.06) 100%)",
+                border: "1.5px solid rgba(239,68,68,0.3)",
+              }}
+              onClick={() => {
+                if (!student) return;
+                setReviewLoading(true);
+                router.push("/review");
+              }}
+            >
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: "rgba(239,68,68,0.15)" }}
+              >
+                <span className="text-2xl">🧠</span>
+              </div>
+              <div className="flex-1">
+                <p className="text-white font-black text-base">
+                  {reviewDue} concept{reviewDue !== 1 ? "s" : ""} fading from memory
+                </p>
+                <p className="text-gray-400 text-xs mt-0.5">
+                  Your spaced repetition review queue is ready — review now for maximum retention
+                </p>
+              </div>
+              <motion.span
+                className="text-sm font-bold flex-shrink-0"
+                style={{ color: "#f87171" }}
+                animate={{ x: [0, 4, 0] }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+              >
+                Review →
+              </motion.span>
+            </motion.div>
+          )}
+
+          {/* ── Study Next recommendations (Phase 0) ─────────────────────── */}
+          {recommendations.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="rounded-2xl p-5 mb-8"
+              style={{ background: "#1a1a1a", border: "1px solid #2a2a2a" }}
+            >
+              <p className="text-gray-500 text-xs uppercase tracking-wider font-semibold mb-3">
+                📚 Recommended to Study Next
+              </p>
+              <div className="flex flex-col gap-2">
+                {recommendations.map((rec) => (
+                  <div
+                    key={rec.id}
+                    className="flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all hover:bg-white/5"
+                    onClick={() => router.push(`/subject/Chemistry`)}
+                  >
+                    <div className="flex-1">
+                      <p className="text-white text-sm font-semibold">{rec.name}</p>
+                      <p className="text-gray-600 text-xs capitalize">{rec.masteryLevel.replace(/_/g, " ")}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="h-1.5 w-16 rounded-full overflow-hidden" style={{ background: "#252525" }}>
+                        <div
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${Math.round(rec.mastery * 100)}%`,
+                            background: rec.mastery >= 0.6 ? "#CCEB58" : rec.mastery >= 0.3 ? "#facc15" : "#ef4444",
+                          }}
+                        />
+                      </div>
+                      <span className="text-xs font-bold" style={{ color: "#888" }}>
+                        {Math.round(rec.mastery * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
 
           {/* Subject grid */}
           <motion.div
