@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useStudentStore } from "@/lib/store";
-import { reviewDue as reviewDueAPI } from "@/lib/api";
+import { review } from "@/lib/api";
 import { motion, AnimatePresence } from "framer-motion";
 import { RouteGuard } from "@/components/route-guard";
 import Link from "next/link";
@@ -67,14 +67,21 @@ export default function DashboardPage() {
     daysSinceAttempt: number;
   }
   const [dueItems,    setDueItems]    = useState<ReviewItem[]>([]);
+  const [dueCount,    setDueCount]    = useState(0);
   const [dueLoading,  setDueLoading]  = useState(false);
 
   useEffect(() => {
     if (!student) return;
     setDueLoading(true);
-    reviewDueAPI.get(student.id)
-      .then(setDueItems)
-      .catch(() => setDueItems([]))
+    review.getQueue(student.id)
+      .then(res => {
+        setDueCount(res.totalDue);
+        setDueItems(res.concepts);
+      })
+      .catch(() => {
+        setDueCount(0);
+        setDueItems([]);
+      })
       .finally(() => setDueLoading(false));
   }, [student]);
 
@@ -250,15 +257,54 @@ export default function DashboardPage() {
                 <h2 className="text-white font-black text-xl" style={{ letterSpacing: "-0.01em" }}>Due for Review</h2>
                 <p className="text-gray-600 text-xs mt-0.5">Concepts you've learned but may be forgetting</p>
               </div>
-              {dueItems.length > 0 && (
+              {dueCount > 0 && (
                 <span
                   className="ml-auto text-xs font-bold px-2.5 py-1 rounded-full"
                   style={{ background: "rgba(251,191,36,0.12)", color: "#fbbf24" }}
                 >
-                  {dueItems.length} due
+                  {dueCount} due
                 </span>
               )}
             </div>
+
+            {/* ── Review Session Banner ── */}
+            {!dueLoading && dueCount > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="rounded-2xl p-5 mb-5 flex items-center gap-4"
+                style={{
+                  background: "rgba(251,191,36,0.06)",
+                  border: "1.5px solid rgba(251,191,36,0.3)",
+                  boxShadow: "0 0 32px rgba(251,191,36,0.05)",
+                }}
+              >
+                <div
+                  className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
+                  style={{ background: "rgba(251,191,36,0.12)" }}
+                >
+                  🧠
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-bold text-sm">
+                    {dueCount} concept{dueCount !== 1 ? "s" : ""} due for review today
+                  </p>
+                  <p className="text-gray-500 text-xs mt-0.5">
+                    Reinforce before you forget — takes just a few minutes
+                  </p>
+                </div>
+                <motion.button
+                  onClick={() => router.push("/review/session")}
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="flex-shrink-0 px-5 py-2.5 rounded-xl font-bold text-sm"
+                  style={{ background: "#fbbf24", color: "#141414" }}
+                >
+                  Start Review →
+                </motion.button>
+              </motion.div>
+            )}
 
             {/* Loading skeleton */}
             {dueLoading && (
@@ -274,7 +320,7 @@ export default function DashboardPage() {
             )}
 
             {/* Empty state */}
-            {!dueLoading && dueItems.length === 0 && (
+            {!dueLoading && dueCount === 0 && (
               <div
                 className="rounded-2xl p-8 text-center"
                 style={{ background: "#1a1a1a", border: "1px solid #222" }}
@@ -286,7 +332,7 @@ export default function DashboardPage() {
             )}
 
             {/* Review cards */}
-            {!dueLoading && dueItems.length > 0 && (
+            {!dueLoading && dueCount > 0 && (
               <AnimatePresence>
                 <motion.div
                   className="space-y-3"
@@ -357,7 +403,7 @@ export default function DashboardPage() {
 
                         {/* Action */}
                         <Link
-                          href="/subject/Chemistry"
+                          href="/review/session"
                           className="flex-shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-all"
                           style={{ background: "rgba(251,191,36,0.1)", color: "#fbbf24" }}
                         >

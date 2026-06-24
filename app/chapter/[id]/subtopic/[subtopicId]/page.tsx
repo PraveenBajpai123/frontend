@@ -3,9 +3,12 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useStudentStore } from "@/lib/store";
-import { subtopics as subtopicsAPI } from "@/lib/api";
+import { subtopics as subtopicsAPI, sessions as sessionsAPI } from "@/lib/api";
 import { motion, AnimatePresence } from "framer-motion";
 import { RouteGuard } from "@/components/route-guard";
+import { BloomRadarChart } from "@/components/bloom-radar-chart";
+import { InsightChips } from "@/components/insight-chips";
+import { ConceptForgettingCurve } from "@/components/concept-forgetting-curve";
 
 const API_BASE = "http://localhost:3700";
 
@@ -32,6 +35,16 @@ interface Concept {
   consecutiveWrong: number;
   velocity: number;
   attempts: number;
+  // Bloom's taxonomy cognitive-level scores (0-100, optional — absent until first attempt)
+  recallScore?:      number;
+  vocabularyScore?:  number;
+  causeEffectScore?: number;
+  inferenceScore?:   number;
+  applicationScore?: number;
+  // Forgetting-curve fields (null = concept never attempted)
+  halfLifeDays?:   number | null;
+  lastAttempted?:  string | null;  // ISO date string
+  nextReviewDate?: string | null;  // ISO date string
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -71,6 +84,12 @@ export default function SubtopicPage() {
   const [conceptsLoading, setConceptsLoading] = useState(false);
 
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+
+  // ── C5 Engagement-signal refs ───────────────────────────────────────────────
+  // Refs (not state) so reads/writes never trigger re-renders.
+  const passageCardRef   = useRef<HTMLDivElement | null>(null);
+  const passageStartTime = useRef<number | null>(null);      // performance.now() when passage mounts
+  const maxScrollDepth   = useRef<number>(0);                // 0-100 %
 
   useEffect(() => {
     if (!chapterId || !subtopicId || !student) return;
@@ -195,7 +214,54 @@ export default function SubtopicPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapterId, subtopicId, student]);
 
+  // ── C5: Start scroll-depth tracking when the passage becomes visible ────────
+  useEffect(() => {
+    if (!result) return;  // passage not yet rendered
+
+    // Record the moment the passage card first appears
+    passageStartTime.current = performance.now();
+    maxScrollDepth.current   = 0;
+
+    const updateScrollDepth = () => {
+      const el = passageCardRef.current;
+      if (!el) return;
+
+      // How much of the passage element has scrolled into view?
+      const rect          = el.getBoundingClientRect();
+      const passageHeight = el.offsetHeight;
+      if (passageHeight <= 0) return;
+
+      // Pixels of the passage that have passed the bottom of the viewport
+      const scrolledPast = Math.max(0, -rect.top);            // px scrolled above top of viewport
+      const visibleFrom  = Math.max(0, rect.top);             // px from viewport top to passage top
+      const alreadySeen  = window.innerHeight - visibleFrom;  // px visible from the start
+      const totalSeen    = scrolledPast + Math.max(0, alreadySeen);
+
+      const pct = Math.min(100, Math.round((totalSeen / passageHeight) * 100));
+      if (pct > maxScrollDepth.current) maxScrollDepth.current = pct;
+    };
+
+    // Fire once immediately (student may not need to scroll at all on large screens)
+    updateScrollDepth();
+    window.addEventListener("scroll", updateScrollDepth, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", updateScrollDepth);
+    };
+  }, [result]);
+
+  // ── C5: Fire engagement signal then navigate ──────────────────────────────
   const handleStartQuiz = () => {
+    if (result?.sessionId && passageStartTime.current !== null) {
+      const timeOnPassageMs = Math.round(performance.now() - passageStartTime.current);
+      const scrollDepth     = maxScrollDepth.current;
+
+      // Fire-and-forget — never awaited, never blocks navigation
+      sessionsAPI.recordEngagement(result.sessionId, {
+        timeOnPassageMs,
+        maxScrollDepth: scrollDepth,
+      });
+    }
     router.push(`/chapter/${chapterId}/subtopic/${subtopicId}/quiz`);
   };
 
@@ -388,8 +454,9 @@ export default function SubtopicPage() {
                   )}
                 </motion.div>
 
-                {/* Passage card */}
+                {/* Passage card — ref used for C5 scroll-depth tracking */}
                 <motion.div
+                  ref={passageCardRef}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.15 }}
@@ -435,6 +502,11 @@ export default function SubtopicPage() {
 
                       {!conceptsLoading && concepts.length === 0 && (
                         <p className="text-gray-600 text-sm">No concept data yet — complete a quiz to see your breakdown.</p>
+                      )}
+
+                      {/* ── Bloom Radar Chart ── */}
+                      {!conceptsLoading && concepts.length > 0 && (
+                        <BloomRadarChart concepts={concepts} />
                       )}
 
                       <div className="space-y-4">
@@ -484,6 +556,23 @@ export default function SubtopicPage() {
                                   style={{ background: lbl.color }}
                                 />
                               </div>
+
+                              {/* ── Insight Chips: velocity / trend / streak ── */}
+                              {c.attempts > 0 && (
+                                <InsightChips
+                                  velocity={c.velocity}
+                                  consecutiveWrong={c.consecutiveWrong}
+                                  conceptName={c.conceptName}
+                                />
+                              )}
+
+                              {/* ── Per-concept Forgetting Curve (C2) ── */}
+                              <ConceptForgettingCurve
+                                conceptName={c.conceptName}
+                                halfLifeDays={c.halfLifeDays ?? null}
+                                lastAttempted={c.lastAttempted ?? null}
+                                nextReviewDate={c.nextReviewDate ?? null}
+                              />
 
                               {/* Meta row */}
                               <div className="flex items-center gap-3 text-xs" style={{ color: "#555" }}>

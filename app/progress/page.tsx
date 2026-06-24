@@ -6,7 +6,7 @@ import { useStudentStore } from "@/lib/store";
 import { graph, history } from "@/lib/api";
 import { motion } from "framer-motion";
 import { RouteGuard } from "@/components/route-guard";
-import { KnowledgeGraphD3 } from "@/components/knowledge-graph-d3";
+import { KnowledgeGraphD3, type ConceptGraphData } from "@/components/knowledge-graph-d3";
 
 interface GraphNode {
   id: string;
@@ -40,19 +40,23 @@ export default function ProgressPage() {
   const router = useRouter();
   const student = useStudentStore((state) => state.student);
   
-  const [graphData, setGraphData] = useState<KnowledgeGraphData | null>(null);
-  const [historyData, setHistoryData] = useState<HistoryEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [graphData,       setGraphData]       = useState<any | null>(null);
+  const [conceptGraph,    setConceptGraph]    = useState<ConceptGraphData>({ nodes: [], edges: [] });
+  const [historyData,     setHistoryData]     = useState<HistoryEntry[]>([]);
+  const [isLoading,       setIsLoading]       = useState(true);
+  const [lastUpdatedAt,   setLastUpdatedAt]   = useState<Date | null>(null);
+  const [colorMode,       setColorMode]       = useState<'mastery' | 'retention'>('mastery');
 
   const fetchData = useCallback(async () => {
     if (!student) return;
     try {
-      const [graphResult, historyResult] = await Promise.all([
+      const [graphResult, conceptResult, historyResult] = await Promise.all([
         graph.getKnowledgeGraph(student.id),
+        graph.getConceptGraph(student.id),
         history.getHistory(student.id),
       ]);
       setGraphData(graphResult);
+      setConceptGraph(conceptResult);
       setHistoryData(historyResult);
       setLastUpdatedAt(new Date());
     } catch (err) {
@@ -89,7 +93,7 @@ export default function ProgressPage() {
   const totalMastery =
     graphData && graphData.nodes.length > 0
       ? Math.round(
-          graphData.nodes.reduce((sum, node) => sum + node.mastery, 0) /
+          graphData.nodes.reduce((sum: number, node: any) => sum + (node.mastery ?? 0), 0) /
             graphData.nodes.length
         )
       : 0;
@@ -201,24 +205,105 @@ export default function ProgressPage() {
           </motion.div>
 
           {/* Knowledge Graph */}
-          {!isLoading && graphData && graphData.nodes?.length > 0 && (
+          {!isLoading && (
             <motion.div
               className="mb-12"
               variants={itemVariants}
               initial="hidden"
               animate="visible"
             >
-              <h2 className="text-2xl font-bold text-white mb-6">
-                Knowledge Graph
-              </h2>
+              {/* Section header + mode toggle */}
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-2xl font-bold text-white">Knowledge Graph</h2>
+
+                {/* Mastery / Retention pill toggle */}
+                <div
+                  className="flex rounded-full p-1 gap-1"
+                  style={{ background: '#1e1e1e', border: '1px solid #2a2a2a' }}
+                >
+                  {(['mastery', 'retention'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => setColorMode(mode)}
+                      className="px-4 py-1.5 rounded-full text-xs font-bold transition-all capitalize"
+                      style={{
+                        background:  colorMode === mode ? '#CCEB58' : 'transparent',
+                        color:       colorMode === mode ? '#141414' : '#555',
+                        boxShadow:   colorMode === mode ? '0 0 12px rgba(204,235,88,0.25)' : 'none',
+                      }}
+                    >
+                      {mode === 'mastery' ? '🧠 Mastery' : '⏳ Retention'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Legend */}
+              <div className="flex items-center gap-6 mb-4">
+                {colorMode === 'mastery' ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ background: '#CCEB58' }} />
+                      <span className="text-xs text-gray-500">High mastery (100%)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ background: '#888' }} />
+                      <span className="text-xs text-gray-500">Mid mastery (50%)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ background: '#252525', border: '1px solid #333' }} />
+                      <span className="text-xs text-gray-500">Not attempted</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ background: '#4ade80' }} />
+                      <span className="text-xs text-gray-500">High retention</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ background: '#fbbf24' }} />
+                      <span className="text-xs text-gray-500">Fading</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ background: '#ef4444' }} />
+                      <span className="text-xs text-gray-500">Urgent review</span>
+                    </div>
+                  </>
+                )}
+                <div className="flex items-center gap-2 ml-auto">
+                  <div className="w-8 border-t-2" style={{ borderColor: '#5a5a5a' }} />
+                  <span className="text-xs text-gray-600">REQUIRES</span>
+                  <div className="w-8 border-t border-dashed" style={{ borderColor: '#3a3a3a' }} />
+                  <span className="text-xs text-gray-600">RELATED_TO</span>
+                </div>
+              </div>
+
+              {/* Graph canvas */}
               <KnowledgeGraphD3
-                nodes={graphData.nodes.map((node) => ({
-                  id: node.id,
-                  label: node.name,
-                  mastery: node.mastery,
-                  level: 1,
-                }))}
-                links={graphData.edges}
+                data={
+                  // Prefer concept graph if the endpoint is live,
+                  // otherwise fall back to topic-level nodes so nothing breaks
+                  conceptGraph.nodes.length > 0
+                    ? conceptGraph
+                    : {
+                        nodes: (graphData?.nodes ?? []).map((n: any) => ({
+                          id:        n.id,
+                          label:     n.title ?? n.name ?? n.id,
+                          type:      'topic' as const,
+                          parentId:  null,
+                          mastery:   n.mastery ?? 0,
+                          retention: n.mastery ?? 0,
+                        })),
+                        edges: (graphData?.edges ?? []).map((e: any) => ({
+                          source: e.source,
+                          target: e.target,
+                          type:   'RELATED_TO' as const,
+                        })),
+                      }
+                }
+                colorMode={colorMode}
+                height={560}
               />
             </motion.div>
           )}

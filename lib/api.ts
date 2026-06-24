@@ -89,11 +89,21 @@ export const subtopics = {
       retentionScore:   Math.min(100, Math.round((c.retentionScore  ?? 0) * 100)),
       daysSinceAttempt: c.daysSinceAttempt ?? 0,
       attempts:         c.attempts         ?? 0,
+      // Bloom's taxonomy cognitive-level scores (0-100)
+      recallScore:      Math.min(100, Math.round((c.recallScore      ?? 0) * 100)),
+      vocabularyScore:  Math.min(100, Math.round((c.vocabularyScore  ?? 0) * 100)),
+      causeEffectScore: Math.min(100, Math.round((c.causeEffectScore ?? 0) * 100)),
+      inferenceScore:   Math.min(100, Math.round((c.inferenceScore   ?? 0) * 100)),
+      applicationScore: Math.min(100, Math.round((c.applicationScore ?? 0) * 100)),
+      // Forgetting-curve fields (pass through as-is — null when concept never attempted)
+      halfLifeDays:     c.halfLifeDays   ?? null,   // number | null
+      lastAttempted:    c.lastAttempted  ?? null,   // ISO string | null
+      nextReviewDate:   c.nextReviewDate ?? null,   // ISO string | null
     }));
   },
 };
 
-// Review-due endpoint
+// Review-due endpoint (deprecated in favor of review.getQueue)
 export const reviewDue = {
   get: async (studentId: string) => {
     const response = await api.get(`/api/subtopics/${studentId}/review-due`);
@@ -108,6 +118,51 @@ export const reviewDue = {
       daysSinceAttempt: Math.round(c.daysSinceAttempt ?? 0),
       attempts:         c.attempts ?? 0,
     }));
+  },
+};
+
+// Spaced Repetition Review endpoints
+export const review = {
+  getQueue: async (studentId: string, limit = 20) => {
+    const response = await api.get(`/api/review/${studentId}/queue`, {
+      params: { limit },
+    });
+    const payload = response.data.data;
+    const concepts = payload.concepts || [];
+    return {
+      totalDue: payload.totalDue || concepts.length,
+      concepts: concepts.map((c: any) => ({
+        ...c,
+        effectiveMastery: Math.min(100, Math.round((c.effectiveMastery ?? 0))), // already scaled to 0-100 in backend
+        retentionScore:   Math.min(100, Math.round((c.retentionScore ?? 0))),
+      })),
+    };
+  },
+  // startSession uses SSE and is typically initiated manually via fetch,
+  // but we provide a dummy wrapper if needed for static generation (not used in SSE components directly)
+  startSession: async (studentId: string, maxConcepts = 5) => {
+    const response = await api.post(`/api/review/${studentId}/session`, { maxConcepts });
+    return response.data.data;
+  },
+};
+
+// Session engagement signals (C5 — fire-and-forget, never blocks UI)
+export const sessions = {
+  /**
+   * Record passage reading engagement metrics on the already-created session.
+   * The backend stores these for the quality-feedback loop (see ARCHITECTURE_ROADMAP §C5).
+   * This call is intentionally fire-and-forget — failures are silently swallowed.
+   */
+  recordEngagement: (
+    sessionId: string,
+    payload: { timeOnPassageMs: number; maxScrollDepth: number }
+  ): void => {
+    api
+      .patch(`/api/sessions/${sessionId}/engagement`, payload)
+      .catch(() => {
+        // Silently ignore — engagement signals are supplementary and must never
+        // block or lag the quiz navigation.
+      });
   },
 };
 
@@ -191,6 +246,59 @@ export const graph = {
       mastery: Math.min(100, Math.round((n.mastery ?? 0) * 100)),
     }));
     return { nodes, edges };
+  },
+
+  /**
+   * Concept-level graph for the C1 interactive drill-down visualization.
+   * Expects GET /api/graph/:studentId/concepts to return hierarchical nodes
+   * (type: "topic" | "subtopic" | "concept") with REQUIRES / RELATED_TO edges.
+   * Falls back to { nodes: [], edges: [] } gracefully until the backend route exists.
+   */
+  getConceptGraph: async (studentId: string): Promise<{
+    nodes: {
+      id: string;
+      label: string;
+      type: "topic" | "subtopic" | "concept";
+      parentId: string | null;
+      mastery: number;    // 0-100
+      retention: number;  // 0-100 (falls back to mastery if not provided)
+    }[];
+    edges: {
+      source: string;
+      target: string;
+      type: "PART_OF" | "REQUIRES" | "RELATED_TO";
+    }[];
+  }> => {
+    try {
+      const response = await api.get(`/api/graph/${studentId}/concepts`);
+      const payload  = response.data?.data ?? response.data ?? {};
+      const rawNodes: any[] = payload.nodes ?? [];
+      const rawEdges: any[] = payload.edges ?? [];
+
+      const nodes = rawNodes.map((n: any) => {
+        // Backend may return 0-1 floats or already-normalised 0-100 integers
+        const raw = (v: any) => (v == null ? 0 : v <= 1.01 ? v * 100 : v);
+        return {
+          id:        n.id,
+          label:     n.label ?? n.name ?? n.title ?? n.id,
+          type:      (n.type as "topic" | "subtopic" | "concept") ?? "topic",
+          parentId:  n.parentId ?? null,
+          mastery:   Math.min(100, Math.round(raw(n.mastery))),
+          retention: Math.min(100, Math.round(raw(n.retention ?? n.effectiveMastery ?? n.mastery))),
+        };
+      });
+
+      const edges = rawEdges.map((e: any) => ({
+        source: e.source,
+        target: e.target,
+        type:   (e.type as "PART_OF" | "REQUIRES" | "RELATED_TO") ?? "PART_OF",
+      }));
+
+      return { nodes, edges };
+    } catch {
+      // Endpoint not yet live — progress page gracefully renders nothing
+      return { nodes: [], edges: [] };
+    }
   },
 };
 

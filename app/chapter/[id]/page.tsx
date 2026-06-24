@@ -59,13 +59,8 @@ export default function ChapterPage() {
     router.push(`/chapter/${chapterId}/subtopic/${subtopic.id}`);
   };
 
-<<<<<<< HEAD
   const unlockedCount = subtopicList.filter((s) => s.isUnlocked).length;
   const progress = subtopicList.length > 0 ? (unlockedCount / subtopicList.length) * 100 : 0;
-=======
-  const completed = subtopicList.filter((s: any) => s.isComplete).length;
-  const progress = subtopicList.length > 0 ? (completed / subtopicList.length) * 100 : 0;
->>>>>>> 279746deaf4c82ca7fc98cd9bee87e818e9b1019
 
   return (
     <RouteGuard>
