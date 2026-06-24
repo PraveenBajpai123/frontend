@@ -138,11 +138,85 @@ export const review = {
       })),
     };
   },
-  // startSession uses SSE and is typically initiated manually via fetch,
-  // but we provide a dummy wrapper if needed for static generation (not used in SSE components directly)
-  startSession: async (studentId: string, maxConcepts = 5) => {
-    const response = await api.post(`/api/review/${studentId}/session`, { maxConcepts });
-    return response.data.data;
+
+  /**
+   * Returns a promise that resolves once the SSE stream is complete.
+   * Calls onStatus and onResult callbacks as events arrive.
+   */
+  startSession: async (
+    studentId: string,
+    maxConcepts = 5,
+    onStatus?: (msg: string) => void
+  ): Promise<{
+    sessionId: string;
+    title: string;
+    passage: string;
+    questions: any[];
+    subtopicId: string;
+    reviewedConceptCount: number;
+  }> => {
+    return new Promise((resolve, reject) => {
+      // Use fetch directly since EventSource doesn't support POST
+      fetch(`http://localhost:3700/api/review/${studentId}/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ maxConcepts }),
+      })
+        .then((res) => {
+          if (!res.ok || !res.body) throw new Error("Stream failed");
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          const processChunk = ({ done, value }: { done: boolean; value?: Uint8Array }) => {
+            if (done) return;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+
+            for (const line of lines) {
+              if (line.startsWith("event: ")) {
+                // handled in next data line
+              } else if (line.startsWith("data: ")) {
+                const raw = line.slice(6);
+                try {
+                  const parsed = JSON.parse(raw);
+                  if (parsed.message) onStatus?.(parsed.message);
+                  if (parsed.sessionId) {
+                    resolve({
+                      sessionId:            parsed.sessionId,
+                      title:                parsed.title,
+                      passage:              parsed.passage,
+                      questions:            (parsed.questions ?? []).map((q: any) => ({
+                        id:             String(q.index),
+                        index:          q.index,
+                        text:           q.question,
+                        options:        q.options,
+                        correctIndex:   q.correctIndex,
+                        explanation:    q.explanation,
+                        cognitiveLevel: q.cognitiveLevel,
+                        difficulty:     q.difficulty,
+                        conceptTag:     q.conceptTag,
+                      })),
+                      subtopicId:           parsed.subtopicId,
+                      reviewedConceptCount: parsed.reviewedConceptCount ?? 0,
+                    });
+                  }
+                  if (parsed.message && parsed.message.toLowerCase().includes("no concepts")) {
+                    reject(new Error(parsed.message));
+                  }
+                } catch {
+                  // ignore parse errors
+                }
+              }
+            }
+            reader.read().then(processChunk).catch(reject);
+          };
+
+          reader.read().then(processChunk).catch(reject);
+        })
+        .catch(reject);
+    });
   },
 };
 
@@ -300,7 +374,22 @@ export const graph = {
       return { nodes: [], edges: [] };
     }
   },
+
+  getRecommendations: async (studentId: string, subject = "Chemistry", classLevel = 12, limit = 4) => {
+    const response = await api.get(
+      `/api/graph/${studentId}/recommendations?subject=${subject}&classLevel=${classLevel}&limit=${limit}`,
+    );
+    return response.data.data as Array<{
+      id: string;
+      name: string;
+      classLevel: number;
+      mastery: number;
+      attempts: number;
+      masteryLevel: string;
+    }>;
+  },
 };
+
 
 // History endpoints
 export const history = {
